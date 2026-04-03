@@ -5,11 +5,11 @@ import time
 import re
 
 # ==========================================
-# 🔗 ENLACES DE TU GOOGLE SHEET
+# 🔗 CONFIGURACIÓN DE ENLACES
 # ==========================================
 ID_SHEET = "1WcVWos3p9NJKKEpY2L1-gmKhEkZJH1FL8Hy5bNqHyRA"
 
-# Enlaces directos de exportación (Más estables que el de publicación web común)
+# Enlaces con GID específicos para cada pestaña
 URL_PRODUCTOS = f"https://docs.google.com/spreadsheets/d/{ID_SHEET}/export?format=csv&gid=0"
 URL_CONFIG = f"https://docs.google.com/spreadsheets/d/{ID_SHEET}/export?format=csv&gid=612320365"
 
@@ -19,29 +19,25 @@ st.set_page_config(page_title="Caniche Food", page_icon="🍔", layout="centered
 if 'carrito' not in st.session_state:
     st.session_state['carrito'] = {}
 
-# --- FUNCIONES DE CARGA Y LIMPIEZA ---
+# --- FUNCIONES DE LIMPIEZA ---
 def limpiar_precio(valor):
     if pd.isna(valor) or str(valor).strip() == "": return 0.0
-    # Extrae solo números (elimina $, puntos, comas y espacios)
     solo_num = "".join(filter(str.isdigit, str(valor)))
     try: return float(solo_num)
     except: return 0.0
 
-@st.cache_data(ttl=5) # Actualiza cada 5 segundos
+# --- CARGA DE CONFIGURACIÓN (Pestaña Config) ---
+@st.cache_data(ttl=5)
 def cargar_config():
     try:
-        # El cache_buster obliga a Google a dar el dato más reciente
         url_fresca = f"{URL_CONFIG}&cache_buster={int(time.time())}"
         df_conf = pd.read_csv(url_fresca)
-        
-        # Limpiamos las celdas de espacios invisibles
-        df_conf.iloc[:, 0] = df_conf.iloc[:, 0].astype(str).str.strip()
-        df_conf.iloc[:, 1] = df_conf.iloc[:, 1].astype(str).str.strip()
-        
-        # Convertimos a diccionario: Columna A -> Columna B
-        return dict(zip(df_conf.iloc[:, 0], df_conf.iloc[:, 1]))
-    except:
-        # Valores de respaldo si falla la conexión
+        if df_conf.empty:
+            return {}
+        # Crea diccionario: Columna A (Clave) -> Columna B (Valor)
+        return dict(zip(df_conf.iloc[:, 0].astype(str).str.strip(), df_conf.iloc[:, 1].astype(str).str.strip()))
+    except Exception as e:
+        st.error(f"⚠️ Error al leer Config: {e}")
         return {
             "Alias": "caniche.food.mp",
             "Costo Delivery": "800",
@@ -49,38 +45,45 @@ def cargar_config():
             "Telefono": "5493804000000"
         }
 
+# --- CARGA DE PRODUCTOS (Pestaña Productos) ---
 @st.cache_data(ttl=5)
 def cargar_productos():
     try:
         url_fresca = f"{URL_PRODUCTOS}&cache_buster={int(time.time())}"
         df = pd.read_csv(url_fresca)
-        # Normalizar nombres de columnas (Primera letra mayúscula)
+        
+        # Limpieza de nombres de columnas
         df.columns = [str(c).strip().capitalize() for c in df.columns]
+        
         if 'Precio' in df.columns:
             df['Precio_Num'] = df['Precio'].apply(limpiar_precio)
+        else:
+            st.error("❌ No se encontró la columna 'Precio' en el Sheet.")
+            
         return df
-    except:
+    except Exception as e:
+        st.error(f"❌ Error de conexión con Productos: {e}")
         return pd.DataFrame()
 
 # --- PROCESO DE DATOS ---
 conf = cargar_config()
 df = cargar_productos()
 
-# --- INTERFAZ ---
+# --- INTERFAZ PRINCIPAL ---
 st.title("🍔 Caniche Food")
-st.caption(f"📍 Ubicación: {conf.get('Direccion Local', 'Chamical')}")
+st.caption(f"📍 {conf.get('Direccion Local', 'Chamical, La Rioja')}")
 
 if not df.empty:
-    # Filtrar solo productos con "SI" en Disponible
+    # Filtrar solo productos marcados con SI (en mayúsculas y sin espacios)
     if 'Disponible' in df.columns:
         df_visibles = df[df['Disponible'].astype(str).str.upper().str.strip() == "SI"]
     else:
         df_visibles = df
 
     if df_visibles.empty:
-        st.warning("⚠️ No hay productos marcados como 'SI' en la columna Disponible.")
+        st.warning("👋 ¡Hola! Por el momento no hay productos disponibles.")
     else:
-        # Crear pestañas por categoría
+        # Pestañas por Categoría
         categorias = list(df_visibles['Categoria'].unique())
         tabs = st.tabs(categorias)
 
@@ -92,18 +95,17 @@ if not df.empty:
                         c_img, c_info, c_btns = st.columns([1, 1.5, 1])
                         
                         with c_img:
-                            img_url = row.get('Imagen')
-                            if pd.notna(img_url) and str(img_url).startswith('http'):
-                                st.image(img_url, use_container_width=True)
+                            img = row.get('Imagen')
+                            if pd.notna(img) and str(img).startswith('http'):
+                                st.image(img, use_container_width=True)
                             else:
-                                st.image("https://via.placeholder.com/150?text=Comida", use_container_width=True)
+                                st.image("https://via.placeholder.com/150?text=Caniche+Food", use_container_width=True)
                         
                         with c_info:
                             st.subheader(row['Producto'])
                             st.write(f"### ${row['Precio_Num']:,.0f}")
                         
                         with c_btns:
-                            # Botones de cantidad
                             r, n, s = st.columns([1,1,1])
                             p_id = row['Producto']
                             with s: 
@@ -124,7 +126,7 @@ if not df.empty:
                                             del st.session_state['carrito'][p_id]
                                     st.rerun()
 
-    # --- SECCIÓN DEL CARRITO (Caja de pago) ---
+    # --- SECCIÓN DEL CARRITO ---
     if st.session_state['carrito']:
         st.divider()
         st.header("🛒 Tu Pedido")
@@ -146,32 +148,31 @@ if not df.empty:
         costo_envio = 0
         dire = ""
         if entrega == "Delivery":
-            dire = st.text_input("Dirección de entrega / Barrio")
+            dire = st.text_input("Dirección de entrega")
             costo_envio = limpiar_precio(conf.get("Costo Delivery", 800))
-            st.warning(f"🛵 Costo de envío: **${costo_envio:,.0f}**")
+            st.warning(f"🛵 Envío: **${costo_envio:,.0f}**")
         else:
-            st.success(f"🏪 Podés retirar en: {conf.get('Direccion Local', 'el local')}")
+            st.success(f"🏠 Podés retirar en: {conf.get('Direccion Local', 'el local')}")
 
         pago = st.selectbox("Medio de Pago", ["Efectivo", "Transferencia / Mercado Pago"])
         total_final = total_items + costo_envio
 
-        with st.expander("Ver Resumen Total", expanded=True):
-            st.write(f"Subtotal: ${total_items:,.0f}")
+        with st.expander("Ver Resumen de Pago", expanded=True):
+            st.write(f"Comida: ${total_items:,.0f}")
             if costo_envio > 0: st.write(f"Envío: ${costo_envio:,.0f}")
-            st.success(f"### TOTAL A PAGAR: ${total_final:,.0f}")
+            st.success(f"### TOTAL: ${total_final:,.0f}")
             if "Transferencia" in pago:
-                st.info(f"🏦 **Pagar al Alias:** `{conf.get('Alias', 'caniche.food.mp')}`")
+                st.info(f"🏦 **Alias:** `{conf.get('Alias', 'caniche.food.mp')}`")
 
-        # --- BOTÓN DE CIERRE ---
+        # --- BOTÓN HACER PEDIDO ---
         if st.button("🚀 HACER PEDIDO", use_container_width=True):
             if not nombre:
                 st.error("⚠️ Por favor, ingresá tu nombre.")
             elif entrega == "Delivery" and not dire:
-                st.error("⚠️ Necesitamos tu dirección para el envío.")
+                st.error("⚠️ Falta la dirección para el envío.")
             else:
-                # Armado del mensaje para WhatsApp
-                mensaje_final = (
-                    f"🍔 *CANICHE FOOD - NUEVO PEDIDO*\n"
+                msj = (
+                    f"🍔 *PEDIDO - CANICHE FOOD*\n"
                     f"👤 *Cliente:* {nombre}\n"
                     f"--------------------------\n{txt_pedido}"
                     f"--------------------------\n"
@@ -180,9 +181,8 @@ if not df.empty:
                     f"💳 *Pago:* {pago}\n"
                     f"💰 *TOTAL: ${total_final:,.0f}*"
                 )
-                # Teléfono desde el Sheet
-                num_wa = conf.get('Telefono', '5493804000000')
-                url_wa = f"https://wa.me/{num_wa}?text={urllib.parse.quote(mensaje_final)}"
+                wa_tel = conf.get('Telefono', '5493804000000')
+                url_wa = f"https://wa.me/{wa_tel}?text={urllib.parse.quote(msj)}"
                 st.markdown(f'<meta http-equiv="refresh" content="0;URL={url_wa}">', unsafe_allow_html=True)
                 st.balloons()
         
@@ -190,4 +190,4 @@ if not df.empty:
             st.session_state['carrito'] = {}
             st.rerun()
 else:
-    st.error("No se pudo cargar el menú. Revisá la conexión con Google Sheets.")
+    st.error("⚠️ No se pudieron cargar los datos. Verificá que el Sheet sea público (Cualquiera con el link -> Lector).")
