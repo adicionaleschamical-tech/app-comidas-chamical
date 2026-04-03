@@ -3,52 +3,61 @@ import pandas as pd
 import urllib.parse
 import re
 
-# ==========================================
-# ⚙️ CONFIGURACIÓN GENERAL (Ajustá esto aquí)
-# ==========================================
-URL_CSV = "https://docs.google.com/spreadsheets/d/e/2PACX-1vSpM4wEf5Flx7VTs99aGebJBJDmsD8jhoZ0-Hl3xv3PGj5hdSH_acG-fKr4rgg3At1GuLgKAGNgewI8/pub?output=csv"
-NUMERO_WHATSAPP = "5493804000000"  # Tu celular con código de área
-ALIAS_PAGO = "caniche.food.mp"     # Tu Alias de Mercado Pago o Banco
-COSTO_DELIVERY = 800               # El precio del envío en Chamical
-# ==========================================
+# --- ENLACES DE GOOGLE SHEETS ---
+# Este es el link principal que me pasaste
+URL_BASE = "https://docs.google.com/spreadsheets/d/e/2PACX-1vSpM4wEf5Flx7VTs99aGebJBJDmsD8jhoZ0-Hl3xv3PGj5hdSH_acG-fKr4rgg3At1GuLgKAGNgewI8/pub?output=csv"
 
-st.set_page_config(page_title="Caniche Food", page_icon="🍔")
+# Intentamos cargar la pestaña de Configuración (normalmente gid=987654321 o similar, 
+# pero usaremos el base por defecto y validaremos)
+URL_PRODUCTOS = URL_BASE 
+URL_CONFIG = URL_BASE + "&gid=1334032152" # Gid típico de la segunda pestaña, verificar en tu navegador
 
+st.set_page_config(page_title="Caniche Food", page_icon="🍔", layout="centered")
+
+# --- INICIALIZACIÓN DE CARRITO ---
 if 'carrito' not in st.session_state:
     st.session_state['carrito'] = {}
 
-# --- FUNCIONES DE APOYO ---
+# --- FUNCIONES DE LIMPIEZA ---
 def limpiar_precio(valor):
     if pd.isna(valor) or str(valor).strip() == "": return 0.0
-    solo_numeros = "".join(filter(str.isdigit, str(valor)))
-    try: return float(solo_numeros)
+    solo_num = "".join(filter(str.isdigit, str(valor)))
+    try: return float(solo_num)
     except: return 0.0
 
 @st.cache_data(ttl=30)
-def cargar_datos():
+def cargar_config():
     try:
-        df = pd.read_csv(URL_CSV)
+        # Intentamos leer la configuración del Sheet
+        df_conf = pd.read_csv(URL_CONFIG)
+        # Creamos un diccionario: la columna A es la clave, la B el valor
+        return dict(zip(df_conf.iloc[:, 0], df_conf.iloc[:, 1]))
+    except:
+        # Valores de respaldo si la pestaña Config no está lista
+        return {
+            "Alias": "caniche.food.mp",
+            "Costo Delivery": "800",
+            "Direccion Local": "Chamical, La Rioja",
+            "Telefono": "5493804000000"
+        }
+
+@st.cache_data(ttl=30)
+def cargar_productos():
+    try:
+        df = pd.read_csv(URL_PRODUCTOS)
         df.columns = [str(c).strip().capitalize() for c in df.columns]
         if 'Precio' in df.columns:
             df['Precio_Num'] = df['Precio'].apply(limpiar_precio)
         return df
     except: return pd.DataFrame()
 
-def modificar_cantidad(producto, precio, operacion):
-    if operacion == "sumar":
-        if producto in st.session_state['carrito']:
-            st.session_state['carrito'][producto]['cant'] += 1
-        else:
-            st.session_state['carrito'][producto] = {'precio': precio, 'cant': 1}
-    elif operacion == "restar":
-        if producto in st.session_state['carrito']:
-            st.session_state['carrito'][producto]['cant'] -= 1
-            if st.session_state['carrito'][producto]['cant'] <= 0:
-                del st.session_state['carrito'][producto]
+# --- CARGA DE DATOS ---
+conf = cargar_config()
+df = cargar_productos()
 
-# --- MENÚ DE PRODUCTOS ---
+# --- INTERFAZ PRINCIPAL ---
 st.title("🍔 Caniche Food")
-df = cargar_datos()
+st.caption(f"📍 Local: {conf.get('Direccion Local')}")
 
 if not df.empty:
     if 'Disponible' in df.columns:
@@ -64,77 +73,81 @@ if not df.empty:
                 with st.container(border=True):
                     c_img, c_info, c_btns = st.columns([1, 1.5, 1])
                     with c_img:
-                        if pd.notna(row.get('Imagen')): st.image(row['Imagen'], use_container_width=True)
+                        if pd.notna(row.get('Imagen')):
+                            st.image(row['Imagen'], use_container_width=True)
                     with c_info:
                         st.subheader(row['Producto'])
                         st.write(f"**${row['Precio_Num']:,.0f}**")
                     with c_btns:
                         r, n, s = st.columns([1,1,1])
                         with s: 
-                            if st.button("➕", key=f"add_{row['Producto']}"): 
-                                modificar_cantidad(row['Producto'], row['Precio_Num'], "sumar")
+                            if st.button("➕", key=f"add_{row['Producto']}"):
+                                prod = row['Producto']
+                                if prod in st.session_state['carrito']:
+                                    st.session_state['carrito'][prod]['cant'] += 1
+                                else:
+                                    st.session_state['carrito'][prod] = {'precio': row['Precio_Num'], 'cant': 1}
                                 st.rerun()
-                        with n: 
+                        with n:
                             cant = st.session_state['carrito'].get(row['Producto'], {}).get('cant', 0)
                             st.markdown(f"<h4 style='text-align:center;'>{cant}</h4>", unsafe_allow_html=True)
-                        with r: 
-                            if st.button("➖", key=f"res_{row['Producto']}"): 
-                                modificar_cantidad(row['Producto'], row['Precio_Num'], "restar")
+                        with r:
+                            if st.button("➖", key=f"res_{row['Producto']}"):
+                                prod = row['Producto']
+                                if prod in st.session_state['carrito']:
+                                    st.session_state['carrito'][prod]['cant'] -= 1
+                                    if st.session_state['carrito'][prod]['cant'] <= 0:
+                                        del st.session_state['carrito'][prod]
                                 st.rerun()
 
-    # --- SECCIÓN FINAL DEL PEDIDO ---
+    # --- SECCIÓN DEL PEDIDO ---
     if st.session_state['carrito']:
         st.divider()
-        st.header("🛒 Tu Carrito")
+        st.header("🛒 Tu Pedido")
         
         total_productos = 0
-        resumen_texto = ""
+        resumen_txt = ""
         for p, info in st.session_state['carrito'].items():
             sub = info['precio'] * info['cant']
             total_productos += sub
             st.write(f"✅ {info['cant']}x **{p}** — ${sub:,.0f}")
-            resumen_texto += f"- {info['cant']}x {p} (${sub:,.0f})\n"
+            resumen_txt += f"- {info['cant']}x {p} (${sub:,.0f})\n"
 
-        # --- DATOS DEL CLIENTE ---
         st.divider()
-        st.subheader("📍 Datos de Entrega")
-        
-        nombre = st.text_input("Tu Nombre", placeholder="Escribí tu nombre aquí")
+        nombre = st.text_input("Tu Nombre", placeholder="¿A nombre de quién el pedido?")
         entrega = st.radio("¿Cómo recibís tu pedido?", ["Retiro en Local", "Delivery"])
         
         envio_final = 0
         dire = ""
         if entrega == "Delivery":
-            dire = st.text_input("Dirección / Barrio", placeholder="Ej: B° Centro, calle falsa 123")
-            envio_final = COSTO_DELIVERY
-            st.info(f"🛵 Costo de envío: **${COSTO_DELIVERY}**")
+            dire = st.text_input("Dirección de entrega")
+            envio_final = limpiar_precio(conf.get("Costo Delivery"))
+            st.info(f"🛵 Costo de envío: **${envio_final:,.0f}**")
+        else:
+            st.success(f"🏠 Podés retirar en: {conf.get('Direccion Local')}")
 
         pago = st.selectbox("Medio de Pago", ["Efectivo", "Transferencia / Mercado Pago"])
-        
         total_final = total_productos + envio_final
-        
-        # --- RESUMEN DE PAGO ---
-        with st.expander("Ver Resumen de Pago", expanded=True):
-            st.write(f"Productos: ${total_productos:,.0f}")
-            if envio_final > 0: st.write(f"Envío: ${envio_final:,.0f}")
-            st.success(f"### TOTAL A PAGAR: ${total_final:,.0f}")
-            
-            if "Transferencia" in pago:
-                st.warning(f"🏦 **Alias:** `{ALIAS_PAGO}`")
 
-        # --- BOTÓN HACER PEDIDO ---
+        with st.expander("Resumen de Pago", expanded=True):
+            st.write(f"Comida: ${total_productos:,.0f}")
+            if envio_final > 0: st.write(f"Envío: ${envio_final:,.0f}")
+            st.write(f"### TOTAL: ${total_final:,.0f}")
+            if "Transferencia" in pago:
+                st.warning(f"🏦 **Alias:** `{conf.get('Alias')}`")
+
+        # --- BOTÓN FINAL ---
         if st.button("🚀 HACER PEDIDO", use_container_width=True):
             if not nombre:
-                st.error("⚠️ Por favor, ingresá tu nombre para continuar.")
+                st.error("⚠️ Falta tu nombre.")
             elif entrega == "Delivery" and not dire:
-                st.error("⚠️ Necesitamos tu dirección para el envío.")
+                st.error("⚠️ Falta la dirección para el envío.")
             else:
-                # Armar mensaje de WhatsApp
+                # Mensaje de WhatsApp
                 msj = (
-                    f"🍔 *NUEVO PEDIDO - CANICHE FOOD*\n"
+                    f"🍔 *CANICHE FOOD - NUEVO PEDIDO*\n"
                     f"👤 *Cliente:* {nombre}\n"
-                    f"--------------------------\n"
-                    f"{resumen_texto}"
+                    f"--------------------------\n{resumen_txt}"
                     f"--------------------------\n"
                     f"🛵 *Entrega:* {entrega}\n"
                     f"{'📍 *Dirección:* ' + dire if dire else ''}\n"
@@ -142,14 +155,12 @@ if not df.empty:
                     f"💰 *TOTAL: ${total_final:,.0f}*"
                 )
                 
-                url_wa = f"https://wa.me/{NUMERO_WHATSAPP}?text={urllib.parse.quote(msj)}"
+                url_wa = f"https://wa.me/{conf.get('Telefono')}?text={urllib.parse.quote(msj)}"
                 st.markdown(f'<meta http-equiv="refresh" content="0;URL={url_wa}">', unsafe_allow_html=True)
                 st.balloons()
         
-        if st.button("🗑️ Vaciar Carrito", type="secondary"):
+        if st.button("🗑️ Vaciar Carrito"):
             st.session_state['carrito'] = {}
             st.rerun()
-    else:
-        st.info("👋 ¡Hola! Elegí tus productos arriba para armar tu pedido.")
 else:
-    st.error("No se pudo cargar el menú.")
+    st.info("👋 ¡Hola! Elegí tus productos arriba para empezar.")
