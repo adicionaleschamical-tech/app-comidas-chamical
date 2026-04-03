@@ -3,17 +3,21 @@ import pandas as pd
 import urllib.parse
 import re
 
-# --- 1. CONFIGURACIÓN ---
+# ==========================================
+# ⚙️ CONFIGURACIÓN GENERAL (Ajustá esto aquí)
+# ==========================================
 URL_CSV = "https://docs.google.com/spreadsheets/d/e/2PACX-1vSpM4wEf5Flx7VTs99aGebJBJDmsD8jhoZ0-Hl3xv3PGj5hdSH_acG-fKr4rgg3At1GuLgKAGNgewI8/pub?output=csv"
-NUMERO_WHATSAPP = "5493804000000" # <-- PONÉ TU CELULAR AQUÍ
-ALIAS_MP = "caniche.food.mp"     # <-- TU ALIAS DE MERCADO PAGO
+NUMERO_WHATSAPP = "5493804000000"  # Tu celular con código de área
+ALIAS_PAGO = "caniche.food.mp"     # Tu Alias de Mercado Pago o Banco
+COSTO_DELIVERY = 800               # El precio del envío en Chamical
+# ==========================================
 
 st.set_page_config(page_title="Caniche Food", page_icon="🍔")
 
 if 'carrito' not in st.session_state:
     st.session_state['carrito'] = {}
 
-# --- 2. CARGA Y LIMPIEZA DE DATOS ---
+# --- FUNCIONES DE APOYO ---
 def limpiar_precio(valor):
     if pd.isna(valor) or str(valor).strip() == "": return 0.0
     solo_numeros = "".join(filter(str.isdigit, str(valor)))
@@ -42,7 +46,7 @@ def modificar_cantidad(producto, precio, operacion):
             if st.session_state['carrito'][producto]['cant'] <= 0:
                 del st.session_state['carrito'][producto]
 
-# --- 3. INTERFAZ DE PRODUCTOS ---
+# --- MENÚ DE PRODUCTOS ---
 st.title("🍔 Caniche Food")
 df = cargar_datos()
 
@@ -78,10 +82,10 @@ if not df.empty:
                                 modificar_cantidad(row['Producto'], row['Precio_Num'], "restar")
                                 st.rerun()
 
-    # --- 4. SECCIÓN HACER PEDIDO ---
+    # --- SECCIÓN FINAL DEL PEDIDO ---
     if st.session_state['carrito']:
         st.divider()
-        st.header("🛒 Tu Pedido")
+        st.header("🛒 Tu Carrito")
         
         total_productos = 0
         resumen_texto = ""
@@ -91,58 +95,61 @@ if not df.empty:
             st.write(f"✅ {info['cant']}x **{p}** — ${sub:,.0f}")
             resumen_texto += f"- {info['cant']}x {p} (${sub:,.0f})\n"
 
-        st.subheader(f"Total Productos: ${total_productos:,.0f}")
-
-        # --- FORMULARIO DE CLIENTE ---
+        # --- DATOS DEL CLIENTE ---
         st.divider()
         st.subheader("📍 Datos de Entrega")
         
-        nombre = st.text_input("Tu Nombre")
+        nombre = st.text_input("Tu Nombre", placeholder="Escribí tu nombre aquí")
         entrega = st.radio("¿Cómo recibís tu pedido?", ["Retiro en Local", "Delivery"])
         
-        costo_delivery = 0
-        ubicacion = ""
+        envio_final = 0
+        dire = ""
         if entrega == "Delivery":
-            ubicacion = st.text_input("Dirección / Ubicación")
-            costo_delivery = 500  # <--- Podés cambiar el costo de envío acá
-            st.warning(f"Costo de envío: ${costo_delivery}")
+            dire = st.text_input("Dirección / Barrio", placeholder="Ej: B° Centro, calle falsa 123")
+            envio_final = COSTO_DELIVERY
+            st.info(f"🛵 Costo de envío: **${COSTO_DELIVERY}**")
 
-        pago = st.selectbox("Medio de Pago", ["Efectivo", "Transferencia", "Mercado Pago"])
+        pago = st.selectbox("Medio de Pago", ["Efectivo", "Transferencia / Mercado Pago"])
         
-        total_final = total_productos + costo_delivery
-        st.success(f"## Total Final: ${total_final:,.0f}")
+        total_final = total_productos + envio_final
+        
+        # --- RESUMEN DE PAGO ---
+        with st.expander("Ver Resumen de Pago", expanded=True):
+            st.write(f"Productos: ${total_productos:,.0f}")
+            if envio_final > 0: st.write(f"Envío: ${envio_final:,.0f}")
+            st.success(f"### TOTAL A PAGAR: ${total_final:,.0f}")
+            
+            if "Transferencia" in pago:
+                st.warning(f"🏦 **Alias:** `{ALIAS_PAGO}`")
 
-        if pago in ["Transferencia", "Mercado Pago"]:
-            st.info(f"🏦 **Pagar al Alias:** `{ALIAS_MP}`")
-
-        # --- BOTÓN FINAL ---
-        if st.button("🚀 ENVIAR PEDIDO POR WHATSAPP", use_container_width=True):
+        # --- BOTÓN HACER PEDIDO ---
+        if st.button("🚀 HACER PEDIDO", use_container_width=True):
             if not nombre:
-                st.error("Por favor, ingresá tu nombre.")
-            elif entrega == "Delivery" and not ubicacion:
-                st.error("Por favor, ingresá tu ubicación.")
+                st.error("⚠️ Por favor, ingresá tu nombre para continuar.")
+            elif entrega == "Delivery" and not dire:
+                st.error("⚠️ Necesitamos tu dirección para el envío.")
             else:
-                # Construcción del mensaje
+                # Armar mensaje de WhatsApp
                 msj = (
-                    f"¡Hola! Nuevo Pedido 🐩\n"
+                    f"🍔 *NUEVO PEDIDO - CANICHE FOOD*\n"
                     f"👤 *Cliente:* {nombre}\n"
                     f"--------------------------\n"
                     f"{resumen_texto}"
                     f"--------------------------\n"
                     f"🛵 *Entrega:* {entrega}\n"
-                    f"{'📍 *Dirección:* ' + ubicacion if ubicacion else ''}\n"
+                    f"{'📍 *Dirección:* ' + dire if dire else ''}\n"
                     f"💳 *Pago:* {pago}\n"
-                    f"💰 *TOTAL FINAL: ${total_final:,.0f}*"
+                    f"💰 *TOTAL: ${total_final:,.0f}*"
                 )
                 
-                link = f"https://wa.me/{NUMERO_WHATSAPP}?text={urllib.parse.quote(msj)}"
-                st.markdown(f'<meta http-equiv="refresh" content="0;URL={link}">', unsafe_allow_html=True)
+                url_wa = f"https://wa.me/{NUMERO_WHATSAPP}?text={urllib.parse.quote(msj)}"
+                st.markdown(f'<meta http-equiv="refresh" content="0;URL={url_wa}">', unsafe_allow_html=True)
                 st.balloons()
         
-        if st.button("🗑️ Vaciar Carrito"):
+        if st.button("🗑️ Vaciar Carrito", type="secondary"):
             st.session_state['carrito'] = {}
             st.rerun()
     else:
-        st.info("Elegí tus productos arriba para empezar tu pedido.")
+        st.info("👋 ¡Hola! Elegí tus productos arriba para armar tu pedido.")
 else:
     st.error("No se pudo cargar el menú.")
