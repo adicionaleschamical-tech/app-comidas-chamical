@@ -16,23 +16,46 @@ def limpiar_col(txt):
     txt = "".join(c for c in unicodedata.normalize('NFD', txt) if unicodedata.category(c) != 'Mn')
     return txt.capitalize()
 
-# --- ESTILO VISUAL: FAST FOOD VIBRANTE ---
+# --- ESTILO VISUAL: FAST FOOD (Blanco, Rojo y Amarillo) ---
 st.markdown("""
     <style>
-    .stApp { background-color: #F9F9F9; color: #333; }
+    .stApp { background-color: #F8F9FA; }
+    
+    /* Tarjetas */
     div[data-testid="stVerticalBlock"] > div[style*="border"] { 
-        background-color: #FFFFFF; border: none !important; border-radius: 25px; 
-        padding: 20px; box-shadow: 0 10px 25px rgba(0,0,0,0.05); margin-bottom: 15px;
+        background-color: #FFFFFF; border: none !important; border-radius: 20px; 
+        padding: 20px; box-shadow: 0 8px 20px rgba(0,0,0,0.05); margin-bottom: 15px;
     }
-    .stButton > button { border-radius: 15px; font-weight: 700; transition: 0.2s; }
-    .btn-variedad > button { height: 40px; font-size: 12px; background-color: #F1F1F1; border: 1px solid #DDD; color: #666; }
-    .btn-variedad-active > button { background-color: #E63946 !important; color: white !important; border: none; box-shadow: 0 5px 15px rgba(230, 57, 70, 0.4); }
-    .ingredientes-box { background-color: #FFFCEB; padding: 15px; border-radius: 15px; border-left: 6px solid #FFB703; font-size: 14px; margin: 15px 0; color: #444; }
-    .precio-tag { color: #E63946; font-size: 32px; font-weight: 900; margin: 5px 0; }
-    .qty-container { background-color: #F1F1F1; border-radius: 50px; padding: 8px; display: flex; align-items: center; justify-content: center; gap: 20px; width: 160px; margin: 10px auto; }
-    .qty-btn > button { width: 40px !important; height: 40px !important; border-radius: 50% !important; background-color: #FFFFFF !important; color: #E63946 !important; border: 1px solid #DDD !important; }
-    .qty-val { font-size: 22px; font-weight: 800; color: #333; }
-    .stImage > img { border-radius: 20px; }
+
+    /* Botones Variedad */
+    .stButton > button { border-radius: 12px; font-weight: 700; }
+    .btn-variedad > button { background-color: #F1F1F1; border: 1px solid #DDD; color: #555; }
+    .btn-variedad-active > button { 
+        background-color: #E63946 !important; color: white !important; border: none;
+        box-shadow: 0 4px 12px rgba(230, 57, 70, 0.3);
+    }
+
+    /* Caja de Ingredientes Dinámica */
+    .ingredientes-box { 
+        background-color: #FFF9E6; padding: 15px; border-radius: 15px; 
+        border-left: 6px solid #FFB703; font-size: 15px; margin: 15px 0; color: #333; 
+    }
+    .intro-texto { font-weight: 800; color: #E63946; margin-bottom: 5px; display: block; }
+
+    /* Precio */
+    .precio-tag { color: #E63946; font-size: 32px; font-weight: 900; }
+
+    /* Selector de Cantidad */
+    .qty-container { 
+        background-color: #F1F1F1; border-radius: 50px; padding: 5px; 
+        display: flex; align-items: center; justify-content: center; gap: 15px;
+        width: 150px; margin: 10px auto;
+    }
+    .qty-btn > button { 
+        width: 35px !important; height: 35px !important; border-radius: 50% !important; 
+        background-color: #FFFFFF !important; color: #E63946 !important; border: 1px solid #DDD !important;
+    }
+    .qty-val { font-size: 20px; font-weight: 800; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -43,36 +66,19 @@ if 'sel_v' not in st.session_state: st.session_state['sel_v'] = {}
 def cargar_datos():
     try:
         t = int(time.time())
-        # Cargar Configuración con manejo de errores
         df_c = pd.read_csv(f"{URL_CONFIG}&t={t}")
-        conf = {}
-        for _, r in df_c.iterrows():
-            k = str(r.iloc[0]).strip()
-            v = str(r.iloc[1]).strip()
-            conf[k] = v
-        
-        # Cargar Productos
+        conf = {str(r.iloc[0]).strip(): str(r.iloc[1]).strip() for _, r in df_c.iterrows()}
         df_p = pd.read_csv(f"{URL_PRODUCTOS}&t={t}")
         df_p.columns = [limpiar_col(c) for c in df_p.columns]
         return df_p, conf
-    except Exception as e:
-        st.error(f"Error al cargar Excel: {e}")
-        return pd.DataFrame(), {}
+    except: return pd.DataFrame(), {}
 
 df_prod, conf = cargar_datos()
 
-# --- HEADER ---
 st.markdown("<h1 style='text-align: center; color: #E63946;'>🍟 Caniche Food</h1>", unsafe_allow_html=True)
-st.markdown(f"<p style='text-align: center; color: #777;'>📍 {conf.get('Direccion Local', 'Chamical, La Rioja')}</p>", unsafe_allow_html=True)
 
-# --- CUERPO PRINCIPAL ---
 if not df_prod.empty:
-    # Filtro disponibilidad
-    if 'Disponible' in df_prod.columns:
-        df_ver = df_prod[df_prod['Disponible'].astype(str).str.upper().str.strip() == "SI"]
-    else:
-        df_ver = df_prod
-
+    df_ver = df_prod[df_prod['Disponible'].astype(str).str.upper().str.strip() == "SI"] if 'Disponible' in df_prod.columns else df_prod
     cats = [str(c) for c in df_ver['Categoria'].unique() if pd.notna(c)]
     
     if cats:
@@ -82,8 +88,8 @@ if not df_prod.empty:
                 items = df_ver[df_ver['Categoria'] == cat]
                 for idx, row in items.iterrows():
                     with st.container(border=True):
-                        # Lógica de Variedades
-                        has_v = 'Variedades' in row and pd.notna(row['Variedades']) and str(row['Variedades']).strip() != ""
+                        # Lógica de Datos
+                        has_v = 'Variedades' in row and pd.notna(row['Variedades'])
                         if idx not in st.session_state['sel_v']: st.session_state['sel_v'][idx] = None
                         pos = st.session_state['sel_v'][idx]
                         
@@ -92,15 +98,14 @@ if not df_prod.empty:
                         pres = [p.strip() for p in str(row.get('Precio', '0')).split(';')]
                         imgs = [im.strip() for im in str(row.get('Imagen', '')).split(';')]
 
-                        # Imagen: siempre la primera o la seleccionada
-                        c_img = imgs[pos] if pos is not None and pos < len(imgs) and str(imgs[pos]).startswith('http') else (imgs[0] if imgs and str(imgs[0]).startswith('http') else "https://via.placeholder.com/400x300?text=Comida")
+                        c_img = imgs[0] if imgs and str(imgs[0]).startswith('http') else "https://via.placeholder.com/400x300?text=Caniche+Food"
 
-                        c_img_col, c_info_col = st.columns([1.2, 2])
-                        with c_img_col: st.image(c_img, use_container_width=True)
-                        with c_info_col:
+                        col_img, col_info = st.columns([1.2, 2])
+                        with col_img: st.image(c_img, use_container_width=True)
+                        with col_info:
                             st.subheader(row['Producto'])
                             if has_v:
-                                st.write("🥤 **Elegí tu opción:**")
+                                st.write("🥤 **Seleccioná una variedad:**")
                                 cvs = st.columns(len(ops))
                                 for vi, vn in enumerate(ops):
                                     with cvs[vi]:
@@ -111,7 +116,7 @@ if not df_prod.empty:
                                             st.rerun()
                                         st.markdown('</div>', unsafe_allow_html=True)
 
-                            # --- OCULTAMIENTO REAL ---
+                            # --- MOSTRAR DESCRIPCIÓN CON FRASE INTRODUCTORIA ---
                             if not has_v or pos is not None:
                                 p_idx = pos if pos is not None else 0
                                 d_ing = ings[p_idx] if p_idx < len(ings) else ""
@@ -121,15 +126,19 @@ if not df_prod.empty:
                                 except: d_pre = 0.0
 
                                 if d_ing:
-                                    st.markdown(f'<div class="ingredientes-box">📖 {d_ing}</div>', unsafe_allow_html=True)
+                                    st.markdown(f"""
+                                        <div class="ingredientes-box">
+                                            <span class="intro-texto">Esta variedad trae:</span>
+                                            {d_ing}
+                                        </div>
+                                    """, unsafe_allow_html=True)
                                 st.markdown(f'<div class="precio-tag">${d_pre:,.0f}</div>', unsafe_allow_html=True)
 
                         # --- SELECTOR CANTIDAD ---
                         c_nom = ops[pos] if pos is not None and has_v else ""
                         p_id = f"{row['Producto']} ({c_nom})" if c_nom else row['Producto']
-                        bloqueado = has_v and pos is None
                         
-                        if not bloqueado:
+                        if not (has_v and pos is None):
                             st.markdown('<div class="qty-container">', unsafe_allow_html=True)
                             c1, c2, c3 = st.columns([1,1,1])
                             with c1:
@@ -151,22 +160,19 @@ if not df_prod.empty:
 # --- CARRITO ---
 if st.session_state['carrito']:
     st.divider()
-    st.markdown("<h2 style='color: #E63946;'>🛒 Tu Carrito</h2>", unsafe_allow_html=True)
+    st.header("🛒 Tu Pedido")
     total = sum(v['precio'] * v['cant'] for v in st.session_state['carrito'].values())
     for k, v in st.session_state['carrito'].items():
         st.write(f"✅ **{v['cant']}x** {k} — ${v['precio']*v['cant']:,.0f}")
     
     nom = st.text_input("Tu nombre:")
     ent = st.radio("Entrega:", ["Retiro en Local", "Delivery"])
-    try: c_envio = int("".join(filter(str.isdigit, str(conf.get("Costo Delivery", "500"))))) if ent == "Delivery" else 0
-    except: c_envio = 0
+    try: envio = int("".join(filter(str.isdigit, str(conf.get("Costo Delivery", "0"))))) if ent == "Delivery" else 0
+    except: envio = 0
     
-    st.markdown(f"<h3 style='color: #E63946;'>TOTAL: ${total + c_envio:,.0f}</h3>", unsafe_allow_html=True)
-    if st.button("🔥 ENVIAR POR WHATSAPP", use_container_width=True):
+    st.success(f"### TOTAL: ${total + envio:,.0f}")
+    if st.button("🚀 ENVIAR PEDIDO POR WHATSAPP", use_container_width=True):
         if nom:
             resumen = "\n".join([f"- {v['cant']}x {k} (${v['precio']*v['cant']:,.0f})" for k,v in st.session_state['carrito'].items()])
-            msg = f"🍔 *PEDIDO CANICHE FOOD*\n👤 *Cliente:* {nom}\n📍 *Entrega:* {ent}\n{resumen}\n💰 *TOTAL: ${total + c_envio:,.0f}*"
-            st.markdown(f'<meta http-equiv="refresh" content="0;URL=https://wa.me/{conf.get("Telefono", "5493822123456")}?text={urllib.parse.quote(msg)}">', unsafe_allow_html=True)
-        else: st.error("Falta tu nombre")
-else:
-    st.info("Elegí tus productos favoritos arriba 🍔🍟")
+            msg = f"🍔 *PEDIDO CANICHE FOOD*\n👤 *Cliente:* {nom}\n📍 *Entrega:* {ent}\n{resumen}\n💰 *TOTAL: ${total + envio:,.0f}*"
+            st.markdown(f'<meta http-equiv="refresh" content="0;URL=https://wa.me/{conf.get("Telefono")}?text={urllib.parse.quote(msg)}">', unsafe_allow_html=True)
