@@ -3,64 +3,44 @@ import pandas as pd
 import urllib.parse
 import time
 import unicodedata
+import requests
 
-# --- CONFIGURACIÓN DE ACCESO AL EXCEL ---
+# --- CONFIGURACIÓN DE ACCESO ---
 ID_SHEET = "1WcVWos3p9NJKKEpY2L1-gmKhEkZJH1FL8Hy5bNqHyRA"
 URL_PRODUCTOS = f"https://docs.google.com/spreadsheets/d/{ID_SHEET}/export?format=csv&gid=0"
 URL_CONFIG = f"https://docs.google.com/spreadsheets/d/{ID_SHEET}/export?format=csv&gid=612320365"
 
+# --- TUS DATOS DE TELEGRAM ---
+TELEGRAM_TOKEN = "8793126374:AAG5zIBWrUOq50Ku0zjXEe8joD_JlcCDURI"
+TELEGRAM_ID = "7860013984"
+
 st.set_page_config(page_title="Caniche Food", page_icon="🍔", layout="centered")
+
+def enviar_telegram(mensaje):
+    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+    payload = {"chat_id": TELEGRAM_ID, "text": mensaje, "parse_mode": "Markdown"}
+    try:
+        requests.post(url, json=payload)
+    except:
+        st.error("Error de conexión con el servidor de notificaciones.")
 
 def limpiar_col(txt):
     txt = str(txt).strip().lower()
     txt = "".join(c for c in unicodedata.normalize('NFD', txt) if unicodedata.category(c) != 'Mn')
     return txt.capitalize()
 
-# --- ESTILO VISUAL: FAST FOOD MODERNO ---
+# --- ESTILO VISUAL FAST FOOD ---
 st.markdown("""
     <style>
-    .stApp { background-color: #F8F9FA; color: #333; }
-    
-    /* Tarjeta de Producto */
+    .stApp { background-color: #F8F9FA; }
     div[data-testid="stVerticalBlock"] > div[style*="border"] { 
-        background-color: #FFFFFF; border: none !important; border-radius: 25px; 
-        padding: 22px; box-shadow: 0 10px 30px rgba(0,0,0,0.06); margin-bottom: 20px;
+        background-color: #FFFFFF; border: none !important; border-radius: 20px; 
+        padding: 20px; box-shadow: 0 8px 20px rgba(0,0,0,0.05); margin-bottom: 15px;
     }
-
-    /* Botones de Variedad */
-    .stButton > button { border-radius: 15px; font-weight: 700; transition: 0.2s; text-transform: uppercase; }
-    .btn-variedad > button { background-color: #F1F1F1; border: 1px solid #DDD; color: #666; height: 42px; font-size: 12px; }
-    .btn-variedad-active > button { 
-        background-color: #E63946 !important; color: white !important; border: none;
-        box-shadow: 0 5px 15px rgba(230, 57, 70, 0.4);
-    }
-
-    /* Caja de Ingredientes Dinámica */
-    .ingredientes-box { 
-        background-color: #FFF9E6; padding: 18px; border-radius: 18px; 
-        border-left: 8px solid #FFB703; font-size: 15px; margin: 18px 0; color: #333; 
-    }
-    .intro-texto { font-weight: 800; color: #E63946; margin-bottom: 5px; display: block; font-size: 16px; }
-
-    /* Precio y Texto */
-    .precio-tag { color: #E63946; font-size: 34px; font-weight: 900; margin-top: 5px; }
-    h1, h2, h3 { font-family: 'Arial Black', sans-serif; }
-
-    /* Selector de Cantidad */
-    .qty-container { 
-        background-color: #F1F1F1; border-radius: 50px; padding: 6px; 
-        display: flex; align-items: center; justify-content: center; gap: 20px;
-        width: 160px; margin: 15px auto 0 auto;
-    }
-    .qty-btn > button { 
-        width: 40px !important; height: 40px !important; border-radius: 50% !important; 
-        background-color: #FFFFFF !important; color: #E63946 !important; border: 1px solid #DDD !important;
-        font-size: 22px !important; line-height: 1 !important;
-    }
-    .qty-val { font-size: 22px; font-weight: 800; color: #333; }
-
-    /* Imagen */
-    .stImage > img { border-radius: 20px; object-fit: cover; }
+    .btn-variedad-active > button { background-color: #E63946 !important; color: white !important; border: none; }
+    .ingredientes-box { background-color: #FFF9E6; padding: 15px; border-radius: 15px; border-left: 6px solid #FFB703; margin: 10px 0; }
+    .precio-tag { color: #E63946; font-size: 30px; font-weight: 900; }
+    .qty-container { background-color: #F1F1F1; border-radius: 50px; padding: 5px; display: flex; align-items: center; justify-content: center; gap: 15px; width: 150px; margin: 10px auto; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -80,9 +60,7 @@ def cargar_datos():
 
 df_prod, conf = cargar_datos()
 
-# --- HEADER ---
-st.markdown("<h1 style='text-align: center; color: #E63946; margin-bottom: 0;'>🍟 Caniche Food</h1>", unsafe_allow_html=True)
-st.markdown(f"<p style='text-align: center; color: #777;'>Chamical, La Rioja</p>", unsafe_allow_html=True)
+st.markdown("<h1 style='text-align: center; color: #E63946;'>🍟 Caniche Food</h1>", unsafe_allow_html=True)
 
 if not df_prod.empty:
     df_ver = df_prod[df_prod['Disponible'].astype(str).str.upper().str.strip() == "SI"] if 'Disponible' in df_prod.columns else df_prod
@@ -95,7 +73,6 @@ if not df_prod.empty:
                 items = df_ver[df_ver['Categoria'] == cat]
                 for idx, row in items.iterrows():
                     with st.container(border=True):
-                        # Lógica interna de datos
                         has_v = 'Variedades' in row and pd.notna(row['Variedades'])
                         if idx not in st.session_state['sel_v']: st.session_state['sel_v'][idx] = None
                         pos = st.session_state['sel_v'][idx]
@@ -105,27 +82,24 @@ if not df_prod.empty:
                         pres = [p.strip() for p in str(row.get('Precio', '0')).split(';')]
                         imgs = [im.strip() for im in str(row.get('Imagen', '')).split(';')]
 
-                        # Imagen dinámica o por defecto
-                        c_img = imgs[pos] if pos is not None and pos < len(imgs) and str(imgs[pos]).startswith('http') else (imgs[0] if imgs and str(imgs[0]).startswith('http') else "https://via.placeholder.com/400x300?text=Caniche+Food")
+                        c_img = imgs[0] if imgs and str(imgs[0]).startswith('http') else "https://via.placeholder.com/400x300?text=Comida"
 
-                        col_img, col_info = st.columns([1.3, 2])
+                        col_img, col_info = st.columns([1, 2])
                         with col_img: st.image(c_img, use_container_width=True)
                         with col_info:
                             st.subheader(row['Producto'])
-                            
                             if has_v:
-                                st.write("🥤 **Elegí tu opción:**")
+                                st.write("🥤 **Variedad:**")
                                 cvs = st.columns(len(ops))
                                 for vi, vn in enumerate(ops):
                                     with cvs[vi]:
-                                        est = "btn-variedad-active" if pos == vi else "btn-variedad"
+                                        est = "btn-variedad-active" if pos == vi else ""
                                         st.markdown(f'<div class="{est}">', unsafe_allow_html=True)
                                         if st.button(vn, key=f"v_{idx}_{vi}"):
                                             st.session_state['sel_v'][idx] = vi
                                             st.rerun()
                                         st.markdown('</div>', unsafe_allow_html=True)
 
-                            # --- OCULTAMIENTO Y DESCRIPCIÓN DINÁMICA ---
                             if not has_v or pos is not None:
                                 p_idx = pos if pos is not None else 0
                                 d_ing = ings[p_idx] if p_idx < len(ings) else ""
@@ -135,12 +109,10 @@ if not df_prod.empty:
                                 except: d_pre = 0.0
 
                                 if d_ing:
-                                    st.markdown(f'<div class="ingredientes-box"><span class="intro-texto">Esta variedad trae:</span>{d_ing}</div>', unsafe_allow_html=True)
+                                    st.markdown(f'<div class="ingredientes-box"><b>Esta variedad trae:</b><br>{d_ing}</div>', unsafe_allow_html=True)
                                 st.markdown(f'<div class="precio-tag">${d_pre:,.0f}</div>', unsafe_allow_html=True)
 
-                        # --- SELECTOR DE CANTIDAD ---
-                        c_nom = ops[pos] if pos is not None and has_v else ""
-                        p_id = f"{row['Producto']} ({c_nom})" if c_nom else row['Producto']
+                        p_id = f"{row['Producto']} ({ops[pos]})" if has_v and pos is not None else row['Producto']
                         if not (has_v and pos is None):
                             st.markdown('<div class="qty-container">', unsafe_allow_html=True)
                             c1, c2, c3 = st.columns([1,1,1])
@@ -151,8 +123,7 @@ if not df_prod.empty:
                                         if st.session_state['carrito'][p_id]['cant'] <= 0: del st.session_state['carrito'][p_id]
                                         st.rerun()
                             with c2:
-                                cant = st.session_state['carrito'].get(p_id, {}).get('cant', 0)
-                                st.markdown(f'<div class="qty-val">{cant}</div>', unsafe_allow_html=True)
+                                st.markdown(f'<b>{st.session_state["carrito"].get(p_id, {}).get("cant", 0)}</b>', unsafe_allow_html=True)
                             with c3:
                                 if st.button("+", key=f"a_{idx}"):
                                     if p_id in st.session_state['carrito']: st.session_state['carrito'][p_id]['cant'] += 1
@@ -160,56 +131,48 @@ if not df_prod.empty:
                                     st.rerun()
                             st.markdown('</div>', unsafe_allow_html=True)
 
-# --- RESUMEN DE COMPRA ---
+# --- SECCIÓN DE PAGO Y ENVÍO ---
 if st.session_state['carrito']:
     st.divider()
-    st.markdown("<h2 style='color: #E63946;'>🛒 Tu Pedido</h2>", unsafe_allow_html=True)
+    st.header("🛒 Finalizar Compra")
     
-    total_items = 0
-    for k, v in st.session_state['carrito'].items():
-        sub = v['precio'] * v['cant']
-        total_items += sub
-        st.write(f"✅ **{v['cant']}x** {k} — ${sub:,.0f}")
+    nom = st.text_input("👤 Tu Nombre:")
+    pago = st.selectbox("💰 Medio de Pago:", ["Efectivo", "Transferencia", "Mercado Pago"])
+    ent = st.radio("🛵 Entrega:", ["Retiro en Local", "Delivery"], horizontal=True)
     
-    st.write("")
-    nom = st.text_input("📝 Tu nombre:")
-    ent = st.radio("🛵 Modo de entrega:", ["Retiro en Local", "Delivery"], horizontal=True)
-    
-    # Lógica de información de entrega
     costo_envio = 0
-    if ent == "Retiro en Local":
-        dir_local = conf.get("Direccion Local", "Chamical, La Rioja")
-        st.info(f"📍 **Retirás en:** {dir_local}")
-    else:
-        try:
-            val_envio = str(conf.get("Costo Delivery", "500"))
-            costo_envio = int("".join(filter(str.isdigit, val_envio)))
+    dir_cliente = ""
+    if ent == "Delivery":
+        dir_cliente = st.text_area("🏠 Dirección y referencias:")
+        try: costo_envio = int("".join(filter(str.isdigit, str(conf.get("Costo Delivery", "500")))))
         except: costo_envio = 0
-        st.warning(f"🛵 **Costo de envío:** ${costo_envio:,.0f}")
+        st.warning(f"Costo de envío: ${costo_envio:,.0f}")
+    else:
+        st.info(f"📍 Retirás en: {conf.get('Direccion Local', 'Chamical')}")
 
-    total_total = total_items + costo_envio
+    total_prod = sum(v['precio'] * v['cant'] for v in st.session_state['carrito'].values())
+    total_total = total_prod + costo_envio
     
-    st.markdown(f"""
-        <div style="background-color: #E63946; padding: 20px; border-radius: 15px; text-align: center; margin: 20px 0;">
-            <h2 style="color: white; margin: 0;">TOTAL A PAGAR: ${total_total:,.0f}</h2>
-        </div>
-    """, unsafe_allow_html=True)
-    
-    if st.button("🔥 ENVIAR PEDIDO POR WHATSAPP", use_container_width=True):
-        if nom:
-            resumen = "\n".join([f"- {v['cant']}x {k} (${v['precio']*v['cant']:,.0f})" for k,v in st.session_state['carrito'].items()])
-            msg = (
-                f"🍔 *NUEVO PEDIDO - CANICHE FOOD*\n"
+    st.markdown(f"<h2 style='text-align:center; background:#E63946; color:white; padding:15px; border-radius:15px;'>TOTAL: ${total_total:,.0f}</h2>", unsafe_allow_html=True)
+
+    if st.button("🚀 CONFIRMAR PEDIDO", use_container_width=True):
+        if nom and (ent == "Retiro en Local" or dir_cliente):
+            items = "\n".join([f"• {v['cant']}x {k} (${v['precio']*v['cant']:,.0f})" for k,v in st.session_state['carrito'].items()])
+            ticket = (
+                f"🔔 *¡NUEVO PEDIDO RECIBIDO!*\n\n"
                 f"👤 *Cliente:* {nom}\n"
-                f"📍 *Entrega:* {ent}\n"
-                f"{'🏠 *Retiro por local*' if ent == 'Retiro en Local' else '🛵 *Envío a domicilio*'}\n"
+                f"📍 *Modo:* {ent}\n"
+                f"{'🏠 *Dirección:* ' + dir_cliente if ent == 'Delivery' else '🏢 *Retira en local*'}\n"
+                f"💳 *Pago:* {pago}\n"
                 f"--------------------------\n"
-                f"{resumen}\n"
+                f"{items}\n"
                 f"--------------------------\n"
-                f"💰 *TOTAL: ${total_total:,.0f}*"
+                f"💰 *TOTAL A COBRAR: ${total_total:,.0f}*"
             )
-            tel = conf.get("Telefono", "5493822123456")
-            st.markdown(f'<meta http-equiv="refresh" content="0;URL=https://wa.me/{tel}?text={urllib.parse.quote(msg)}">', unsafe_allow_html=True)
-        else: st.error("⚠️ Por favor, ingresá tu nombre.")
-else:
-    st.info("¡Elegí tu comida favorita para armar el pedido! 🍔🍟")
+            enviar_telegram(ticket)
+            st.success("¡Pedido enviado! Te avisaremos por WhatsApp para coordinar la entrega.")
+            st.balloons()
+            # Opcional: limpiar carrito tras pedir
+            # st.session_state['carrito'] = {}
+        else:
+            st.error("⚠️ Por favor completa tu nombre y dirección.")
