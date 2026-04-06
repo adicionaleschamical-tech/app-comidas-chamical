@@ -38,9 +38,10 @@ st.markdown("""
         padding: 20px; box-shadow: 0 8px 20px rgba(0,0,0,0.05); margin-bottom: 15px;
     }
     .btn-variedad-active > button { background-color: #E63946 !important; color: white !important; border: none; }
-    .ingredientes-box { background-color: #FFF9E6; padding: 15px; border-radius: 15px; border-left: 6px solid #FFB703; margin: 10px 0; }
+    .ingredientes-box { background-color: #FFF9E6; padding: 15px; border-radius: 15px; border-left: 6px solid #FFB703; margin: 10px 0; font-size: 14px; }
     .precio-tag { color: #E63946; font-size: 30px; font-weight: 900; }
     .qty-container { background-color: #F1F1F1; border-radius: 50px; padding: 5px; display: flex; align-items: center; justify-content: center; gap: 15px; width: 150px; margin: 10px auto; }
+    .item-carrito { background: #f9f9f9; padding: 10px; border-radius: 10px; margin-bottom: 5px; border-left: 4px solid #E63946; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -89,7 +90,6 @@ if not df_prod.empty:
                         with col_info:
                             st.subheader(row['Producto'])
                             if has_v:
-                                st.write("🥤 **Variedad:**")
                                 cvs = st.columns(len(ops))
                                 for vi, vn in enumerate(ops):
                                     with cvs[vi]:
@@ -112,7 +112,9 @@ if not df_prod.empty:
                                     st.markdown(f'<div class="ingredientes-box"><b>Esta variedad trae:</b><br>{d_ing}</div>', unsafe_allow_html=True)
                                 st.markdown(f'<div class="precio-tag">${d_pre:,.0f}</div>', unsafe_allow_html=True)
 
+                        # ID ÚNICO PARA EL CARRITO
                         p_id = f"{row['Producto']} ({ops[pos]})" if has_v and pos is not None else row['Producto']
+                        
                         if not (has_v and pos is None):
                             st.markdown('<div class="qty-container">', unsafe_allow_html=True)
                             c1, c2, c3 = st.columns([1,1,1])
@@ -123,7 +125,8 @@ if not df_prod.empty:
                                         if st.session_state['carrito'][p_id]['cant'] <= 0: del st.session_state['carrito'][p_id]
                                         st.rerun()
                             with c2:
-                                st.markdown(f'<b>{st.session_state["carrito"].get(p_id, {}).get("cant", 0)}</b>', unsafe_allow_html=True)
+                                val_cant = st.session_state["carrito"].get(p_id, {}).get("cant", 0)
+                                st.markdown(f'<div style="font-size:20px; font-weight:bold;">{val_cant}</div>', unsafe_allow_html=True)
                             with c3:
                                 if st.button("+", key=f"a_{idx}"):
                                     if p_id in st.session_state['carrito']: st.session_state['carrito'][p_id]['cant'] += 1
@@ -131,11 +134,28 @@ if not df_prod.empty:
                                     st.rerun()
                             st.markdown('</div>', unsafe_allow_html=True)
 
-# --- SECCIÓN DE PAGO Y ENVÍO ---
+# --- RESUMEN Y FINALIZACIÓN ---
 if st.session_state['carrito']:
     st.divider()
-    st.header("🛒 Finalizar Compra")
+    st.header("🛒 Detalle de tu Pedido")
     
+    total_prod = 0
+    resumen_texto = "" # Para Telegram
+    
+    for nombre_item, datos in st.session_state['carrito'].items():
+        subtotal = datos['precio'] * datos['cant']
+        total_prod += subtotal
+        # Mostrar en la Web
+        st.markdown(f"""
+            <div class="item-carrito">
+                <b>{datos['cant']}x</b> {nombre_item} <br>
+                <span style="color:#E63946;">Subtotal: ${subtotal:,.0f}</span>
+            </div>
+        """, unsafe_allow_html=True)
+        # Acumular para Telegram
+        resumen_texto += f"• {datos['cant']}x {nombre_item} - ${subtotal:,.0f}\n"
+    
+    st.write("")
     nom = st.text_input("👤 Tu Nombre:")
     pago = st.selectbox("💰 Medio de Pago:", ["Efectivo", "Transferencia", "Mercado Pago"])
     ent = st.radio("🛵 Entrega:", ["Retiro en Local", "Delivery"], horizontal=True)
@@ -150,14 +170,11 @@ if st.session_state['carrito']:
     else:
         st.info(f"📍 Retirás en: {conf.get('Direccion Local', 'Chamical')}")
 
-    total_prod = sum(v['precio'] * v['cant'] for v in st.session_state['carrito'].values())
     total_total = total_prod + costo_envio
-    
     st.markdown(f"<h2 style='text-align:center; background:#E63946; color:white; padding:15px; border-radius:15px;'>TOTAL: ${total_total:,.0f}</h2>", unsafe_allow_html=True)
 
     if st.button("🚀 CONFIRMAR PEDIDO", use_container_width=True):
         if nom and (ent == "Retiro en Local" or dir_cliente):
-            items = "\n".join([f"• {v['cant']}x {k} (${v['precio']*v['cant']:,.0f})" for k,v in st.session_state['carrito'].items()])
             ticket = (
                 f"🔔 *¡NUEVO PEDIDO RECIBIDO!*\n\n"
                 f"👤 *Cliente:* {nom}\n"
@@ -165,14 +182,12 @@ if st.session_state['carrito']:
                 f"{'🏠 *Dirección:* ' + dir_cliente if ent == 'Delivery' else '🏢 *Retira en local*'}\n"
                 f"💳 *Pago:* {pago}\n"
                 f"--------------------------\n"
-                f"{items}\n"
+                f"{resumen_texto}"
                 f"--------------------------\n"
                 f"💰 *TOTAL A COBRAR: ${total_total:,.0f}*"
             )
             enviar_telegram(ticket)
-            st.success("¡Pedido enviado! Te avisaremos por WhatsApp para coordinar la entrega.")
+            st.success("¡Pedido enviado con éxito! Revisá tu Telegram X.")
             st.balloons()
-            # Opcional: limpiar carrito tras pedir
-            # st.session_state['carrito'] = {}
         else:
-            st.error("⚠️ Por favor completa tu nombre y dirección.")
+            st.error("⚠️ Falta completar nombre o dirección.")
