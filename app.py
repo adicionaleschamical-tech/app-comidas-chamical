@@ -51,7 +51,7 @@ def enviar_telegram(mensaje):
         return r.json().get("ok")
     except: return False
 
-# --- SESIÓN ---
+# --- SESIÓN (INICIALIZACIÓN SEGURA) ---
 if 'rol' not in st.session_state: st.session_state['rol'] = 'cliente'
 if 'carrito' not in st.session_state: st.session_state['carrito'] = {}
 if 'sel_v' not in st.session_state: st.session_state['sel_v'] = {}
@@ -61,10 +61,14 @@ df_prod, conf = cargar_datos()
 # --- BARRA LATERAL OCULTA PARA GESTIÓN ---
 with st.sidebar:
     st.header("⚙️ Gestión Interna")
-    if st.session_state['rol'] == 'cliente':
+    
+    # Verificación segura del rol antes de mostrar el mensaje
+    rol_actual = st.session_state.get('rol', 'cliente')
+    
+    if rol_actual == 'cliente':
         with st.expander("Acceso Personal"):
-            u_ingreso = st.text_input("Usuario:")
-            p_ingreso = st.text_input("Clave:", type="password")
+            u_ingreso = st.text_input("Usuario:", key="user_login")
+            p_ingreso = st.text_input("Clave:", type="password", key="pass_login")
             if st.button("Entrar"):
                 if u_ingreso == "admin" and p_ingreso == "caniche_boss":
                     st.session_state['rol'] = 'admin'
@@ -75,34 +79,30 @@ with st.sidebar:
                 else:
                     st.error("Incorrecto")
     else:
-        st.info(f"Conectado como: {st.session_state['rol'].upper()}")
+        # Aquí estaba el error: usamos una variable segura 'rol_actual'
+        st.info(f"Conectado como: {str(rol_actual).upper()}")
         if st.button("Salir al Menú"):
             st.session_state['rol'] = 'cliente'
             st.rerun()
 
 # --- LÓGICA DE VISTAS ---
 
-# 1. VISTA ADMINISTRADOR (TODO)
+# 1. VISTA ADMINISTRADOR
 if st.session_state['rol'] == 'admin':
     st.title("Panel Administrador")
-    mantenimiento = st.toggle("Modo Mantenimiento", value=False)
     st.subheader("Editor Maestro de Productos")
-    st.data_editor(df_prod, use_container_width=True)
-    st.subheader("Configuración del Local")
-    st.json(conf)
+    st.data_editor(df_prod, use_container_width=True, key="editor_admin")
 
-# 2. VISTA USUARIO (SOLO PRECIOS, NOMBRES, INGREDIENTES)
+# 2. VISTA STAFF
 elif st.session_state['rol'] == 'usuario':
     st.title("Panel de Staff")
-    st.write("Edite los datos del menú aquí:")
     cols_staff = ["PRODUCTO", "VARIEDADES", "INGREDIENTES", "PRECIO", "DISPONIBLE"]
-    st.data_editor(df_prod[cols_staff], use_container_width=True)
+    st.data_editor(df_prod[cols_staff], use_container_width=True, key="editor_staff")
 
-# 3. VISTA CLIENTE (LA INTERFAZ DE SIEMPRE)
+# 3. VISTA CLIENTE
 else:
     st.markdown("<h1 style='text-align: center; color: #E63946 !important;'>🍟 Caniche Food</h1>", unsafe_allow_html=True)
     
-    # Check Modo Mantenimiento (Simulado por ahora)
     if not df_prod.empty:
         df_ver = df_prod[df_prod['DISPONIBLE'].astype(str).str.upper() == "SI"]
         categorias = df_ver['CATEGORIA'].unique()
