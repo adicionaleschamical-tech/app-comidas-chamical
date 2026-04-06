@@ -39,6 +39,7 @@ def cargar_datos():
         df_p = pd.read_csv(f"{URL_PRODUCTOS}&t={t}")
         df_p.columns = [c.strip().upper() for c in df_p.columns]
         df_c = pd.read_csv(f"{URL_CONFIG}&t={t}")
+        # Diccionario de configuración (incluye claves de acceso del Sheet)
         conf = {str(r.iloc[0]).strip(): str(r.iloc[1]).strip() for _, r in df_c.iterrows()}
         return df_p, conf
     except: return pd.DataFrame(), {}
@@ -51,55 +52,62 @@ def enviar_telegram(mensaje):
         return r.json().get("ok")
     except: return False
 
-# --- SESIÓN (INICIALIZACIÓN SEGURA) ---
+# --- SESIÓN ---
 if 'rol' not in st.session_state: st.session_state['rol'] = 'cliente'
 if 'carrito' not in st.session_state: st.session_state['carrito'] = {}
 if 'sel_v' not in st.session_state: st.session_state['sel_v'] = {}
 
 df_prod, conf = cargar_datos()
 
-# --- BARRA LATERAL OCULTA PARA GESTIÓN ---
+# --- BARRA LATERAL (LOGUEO CON TUS NUEVAS CREDENCIALES) ---
 with st.sidebar:
     st.header("⚙️ Gestión Interna")
-    
-    # Verificación segura del rol antes de mostrar el mensaje
     rol_actual = st.session_state.get('rol', 'cliente')
     
     if rol_actual == 'cliente':
         with st.expander("Acceso Personal"):
-            u_ingreso = st.text_input("Usuario:", key="user_login")
-            p_ingreso = st.text_input("Clave:", type="password", key="pass_login")
+            u_ingreso = st.text_input("DNI / Usuario:", key="user_login")
+            p_ingreso = st.text_input("Contraseña:", type="password", key="pass_login")
+            
             if st.button("Entrar"):
-                if u_ingreso == "admin" and p_ingreso == "caniche_boss":
+                # Validación dinámica contra los datos que pasaste (o los del Sheet)
+                admin_user = conf.get("Admin_DNI", "30588807")
+                admin_pass = conf.get("Admin_Pass", "124578")
+                staff_user = conf.get("User", "usuario")
+                staff_pass = conf.get("User_Pass", "usuario123")
+
+                if u_ingreso == admin_user and p_ingreso == admin_pass:
                     st.session_state['rol'] = 'admin'
                     st.rerun()
-                elif u_ingreso == "staff" and p_ingreso == "caniche_pibe":
+                elif u_ingreso == staff_user and p_ingreso == staff_pass:
                     st.session_state['rol'] = 'usuario'
                     st.rerun()
                 else:
-                    st.error("Incorrecto")
+                    st.error("Credenciales inválidas")
     else:
-        # Aquí estaba el error: usamos una variable segura 'rol_actual'
-        st.info(f"Conectado como: {str(rol_actual).upper()}")
-        if st.button("Salir al Menú"):
+        st.info(f"Sesión: {str(rol_actual).upper()}")
+        if st.button("Cerrar Sesión"):
             st.session_state['rol'] = 'cliente'
             st.rerun()
 
-# --- LÓGICA DE VISTAS ---
+# --- VISTAS DIFERENCIADAS ---
 
-# 1. VISTA ADMINISTRADOR
+# 1. ADMIN (CONTROL TOTAL)
 if st.session_state['rol'] == 'admin':
-    st.title("Panel Administrador")
-    st.subheader("Editor Maestro de Productos")
-    st.data_editor(df_prod, use_container_width=True, key="editor_admin")
+    st.title("🛠️ Panel de Administración")
+    st.write("Control total de la base de datos y configuración.")
+    st.data_editor(df_prod, use_container_width=True, key="ed_admin")
+    st.subheader("Configuración actual del local")
+    st.write(conf)
 
-# 2. VISTA STAFF
+# 2. USUARIO STAFF (SOLO NOMBRES, PRECIOS, INGREDIENTES)
 elif st.session_state['rol'] == 'usuario':
-    st.title("Panel de Staff")
-    cols_staff = ["PRODUCTO", "VARIEDADES", "INGREDIENTES", "PRECIO", "DISPONIBLE"]
-    st.data_editor(df_prod[cols_staff], use_container_width=True, key="editor_staff")
+    st.title("📝 Panel de Usuario (Staff)")
+    st.write("Modificación de carta y disponibilidad:")
+    cols_editables = ["PRODUCTO", "VARIEDADES", "INGREDIENTES", "PRECIO", "DISPONIBLE"]
+    st.data_editor(df_prod[cols_editables], use_container_width=True, key="ed_staff")
 
-# 3. VISTA CLIENTE
+# 3. CLIENTE (INTERFAZ DE VENTA)
 else:
     st.markdown("<h1 style='text-align: center; color: #E63946 !important;'>🍟 Caniche Food</h1>", unsafe_allow_html=True)
     
@@ -170,7 +178,7 @@ else:
                                 st.rerun()
                     st.markdown('</div>', unsafe_allow_html=True)
 
-    # --- CARRITO ---
+    # --- CARRITO FINAL ---
     if st.session_state['carrito']:
         st.divider()
         st.markdown("## 🛒 Tu Pedido")
