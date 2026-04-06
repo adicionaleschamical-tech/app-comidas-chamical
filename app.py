@@ -4,7 +4,7 @@ import urllib.parse
 import time
 import unicodedata
 
-# --- CONFIGURACIÓN ---
+# --- CONFIGURACIÓN DE ACCESO AL EXCEL ---
 ID_SHEET = "1WcVWos3p9NJKKEpY2L1-gmKhEkZJH1FL8Hy5bNqHyRA"
 URL_PRODUCTOS = f"https://docs.google.com/spreadsheets/d/{ID_SHEET}/export?format=csv&gid=0"
 URL_CONFIG = f"https://docs.google.com/spreadsheets/d/{ID_SHEET}/export?format=csv&gid=612320365"
@@ -16,46 +16,51 @@ def limpiar_col(txt):
     txt = "".join(c for c in unicodedata.normalize('NFD', txt) if unicodedata.category(c) != 'Mn')
     return txt.capitalize()
 
-# --- ESTILO VISUAL: FAST FOOD (Blanco, Rojo y Amarillo) ---
+# --- ESTILO VISUAL: FAST FOOD MODERNO ---
 st.markdown("""
     <style>
-    .stApp { background-color: #F8F9FA; }
+    .stApp { background-color: #F8F9FA; color: #333; }
     
-    /* Tarjetas */
+    /* Tarjeta de Producto */
     div[data-testid="stVerticalBlock"] > div[style*="border"] { 
-        background-color: #FFFFFF; border: none !important; border-radius: 20px; 
-        padding: 20px; box-shadow: 0 8px 20px rgba(0,0,0,0.05); margin-bottom: 15px;
+        background-color: #FFFFFF; border: none !important; border-radius: 25px; 
+        padding: 22px; box-shadow: 0 10px 30px rgba(0,0,0,0.06); margin-bottom: 20px;
     }
 
-    /* Botones Variedad */
-    .stButton > button { border-radius: 12px; font-weight: 700; }
-    .btn-variedad > button { background-color: #F1F1F1; border: 1px solid #DDD; color: #555; }
+    /* Botones de Variedad */
+    .stButton > button { border-radius: 15px; font-weight: 700; transition: 0.2s; text-transform: uppercase; }
+    .btn-variedad > button { background-color: #F1F1F1; border: 1px solid #DDD; color: #666; height: 42px; font-size: 12px; }
     .btn-variedad-active > button { 
         background-color: #E63946 !important; color: white !important; border: none;
-        box-shadow: 0 4px 12px rgba(230, 57, 70, 0.3);
+        box-shadow: 0 5px 15px rgba(230, 57, 70, 0.4);
     }
 
     /* Caja de Ingredientes Dinámica */
     .ingredientes-box { 
-        background-color: #FFF9E6; padding: 15px; border-radius: 15px; 
-        border-left: 6px solid #FFB703; font-size: 15px; margin: 15px 0; color: #333; 
+        background-color: #FFF9E6; padding: 18px; border-radius: 18px; 
+        border-left: 8px solid #FFB703; font-size: 15px; margin: 18px 0; color: #333; 
     }
-    .intro-texto { font-weight: 800; color: #E63946; margin-bottom: 5px; display: block; }
+    .intro-texto { font-weight: 800; color: #E63946; margin-bottom: 5px; display: block; font-size: 16px; }
 
-    /* Precio */
-    .precio-tag { color: #E63946; font-size: 32px; font-weight: 900; }
+    /* Precio y Texto */
+    .precio-tag { color: #E63946; font-size: 34px; font-weight: 900; margin-top: 5px; }
+    h1, h2, h3 { font-family: 'Arial Black', sans-serif; }
 
     /* Selector de Cantidad */
     .qty-container { 
-        background-color: #F1F1F1; border-radius: 50px; padding: 5px; 
-        display: flex; align-items: center; justify-content: center; gap: 15px;
-        width: 150px; margin: 10px auto;
+        background-color: #F1F1F1; border-radius: 50px; padding: 6px; 
+        display: flex; align-items: center; justify-content: center; gap: 20px;
+        width: 160px; margin: 15px auto 0 auto;
     }
     .qty-btn > button { 
-        width: 35px !important; height: 35px !important; border-radius: 50% !important; 
+        width: 40px !important; height: 40px !important; border-radius: 50% !important; 
         background-color: #FFFFFF !important; color: #E63946 !important; border: 1px solid #DDD !important;
+        font-size: 22px !important; line-height: 1 !important;
     }
-    .qty-val { font-size: 20px; font-weight: 800; }
+    .qty-val { font-size: 22px; font-weight: 800; color: #333; }
+
+    /* Imagen */
+    .stImage > img { border-radius: 20px; object-fit: cover; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -75,7 +80,9 @@ def cargar_datos():
 
 df_prod, conf = cargar_datos()
 
-st.markdown("<h1 style='text-align: center; color: #E63946;'>🍟 Caniche Food</h1>", unsafe_allow_html=True)
+# --- HEADER ---
+st.markdown("<h1 style='text-align: center; color: #E63946; margin-bottom: 0;'>🍟 Caniche Food</h1>", unsafe_allow_html=True)
+st.markdown(f"<p style='text-align: center; color: #777;'>Chamical, La Rioja</p>", unsafe_allow_html=True)
 
 if not df_prod.empty:
     df_ver = df_prod[df_prod['Disponible'].astype(str).str.upper().str.strip() == "SI"] if 'Disponible' in df_prod.columns else df_prod
@@ -88,7 +95,7 @@ if not df_prod.empty:
                 items = df_ver[df_ver['Categoria'] == cat]
                 for idx, row in items.iterrows():
                     with st.container(border=True):
-                        # Lógica de Datos
+                        # Lógica interna de datos
                         has_v = 'Variedades' in row and pd.notna(row['Variedades'])
                         if idx not in st.session_state['sel_v']: st.session_state['sel_v'][idx] = None
                         pos = st.session_state['sel_v'][idx]
@@ -98,14 +105,16 @@ if not df_prod.empty:
                         pres = [p.strip() for p in str(row.get('Precio', '0')).split(';')]
                         imgs = [im.strip() for im in str(row.get('Imagen', '')).split(';')]
 
-                        c_img = imgs[0] if imgs and str(imgs[0]).startswith('http') else "https://via.placeholder.com/400x300?text=Caniche+Food"
+                        # Imagen dinámica o por defecto
+                        c_img = imgs[pos] if pos is not None and pos < len(imgs) and str(imgs[pos]).startswith('http') else (imgs[0] if imgs and str(imgs[0]).startswith('http') else "https://via.placeholder.com/400x300?text=Caniche+Food")
 
-                        col_img, col_info = st.columns([1.2, 2])
+                        col_img, col_info = st.columns([1.3, 2])
                         with col_img: st.image(c_img, use_container_width=True)
                         with col_info:
                             st.subheader(row['Producto'])
+                            
                             if has_v:
-                                st.write("🥤 **Seleccioná una variedad:**")
+                                st.write("🥤 **Elegí tu opción:**")
                                 cvs = st.columns(len(ops))
                                 for vi, vn in enumerate(ops):
                                     with cvs[vi]:
@@ -116,7 +125,7 @@ if not df_prod.empty:
                                             st.rerun()
                                         st.markdown('</div>', unsafe_allow_html=True)
 
-                            # --- MOSTRAR DESCRIPCIÓN CON FRASE INTRODUCTORIA ---
+                            # --- OCULTAMIENTO Y DESCRIPCIÓN DINÁMICA ---
                             if not has_v or pos is not None:
                                 p_idx = pos if pos is not None else 0
                                 d_ing = ings[p_idx] if p_idx < len(ings) else ""
@@ -126,18 +135,12 @@ if not df_prod.empty:
                                 except: d_pre = 0.0
 
                                 if d_ing:
-                                    st.markdown(f"""
-                                        <div class="ingredientes-box">
-                                            <span class="intro-texto">Esta variedad trae:</span>
-                                            {d_ing}
-                                        </div>
-                                    """, unsafe_allow_html=True)
+                                    st.markdown(f'<div class="ingredientes-box"><span class="intro-texto">Esta variedad trae:</span>{d_ing}</div>', unsafe_allow_html=True)
                                 st.markdown(f'<div class="precio-tag">${d_pre:,.0f}</div>', unsafe_allow_html=True)
 
-                        # --- SELECTOR CANTIDAD ---
+                        # --- SELECTOR DE CANTIDAD ---
                         c_nom = ops[pos] if pos is not None and has_v else ""
                         p_id = f"{row['Producto']} ({c_nom})" if c_nom else row['Producto']
-                        
                         if not (has_v and pos is None):
                             st.markdown('<div class="qty-container">', unsafe_allow_html=True)
                             c1, c2, c3 = st.columns([1,1,1])
@@ -157,22 +160,56 @@ if not df_prod.empty:
                                     st.rerun()
                             st.markdown('</div>', unsafe_allow_html=True)
 
-# --- CARRITO ---
+# --- RESUMEN DE COMPRA ---
 if st.session_state['carrito']:
     st.divider()
-    st.header("🛒 Tu Pedido")
-    total = sum(v['precio'] * v['cant'] for v in st.session_state['carrito'].values())
+    st.markdown("<h2 style='color: #E63946;'>🛒 Tu Pedido</h2>", unsafe_allow_html=True)
+    
+    total_items = 0
     for k, v in st.session_state['carrito'].items():
-        st.write(f"✅ **{v['cant']}x** {k} — ${v['precio']*v['cant']:,.0f}")
+        sub = v['precio'] * v['cant']
+        total_items += sub
+        st.write(f"✅ **{v['cant']}x** {k} — ${sub:,.0f}")
     
-    nom = st.text_input("Tu nombre:")
-    ent = st.radio("Entrega:", ["Retiro en Local", "Delivery"])
-    try: envio = int("".join(filter(str.isdigit, str(conf.get("Costo Delivery", "0"))))) if ent == "Delivery" else 0
-    except: envio = 0
+    st.write("")
+    nom = st.text_input("📝 Tu nombre:")
+    ent = st.radio("🛵 Modo de entrega:", ["Retiro en Local", "Delivery"], horizontal=True)
     
-    st.success(f"### TOTAL: ${total + envio:,.0f}")
-    if st.button("🚀 ENVIAR PEDIDO POR WHATSAPP", use_container_width=True):
+    # Lógica de información de entrega
+    costo_envio = 0
+    if ent == "Retiro en Local":
+        dir_local = conf.get("Direccion Local", "Chamical, La Rioja")
+        st.info(f"📍 **Retirás en:** {dir_local}")
+    else:
+        try:
+            val_envio = str(conf.get("Costo Delivery", "500"))
+            costo_envio = int("".join(filter(str.isdigit, val_envio)))
+        except: costo_envio = 0
+        st.warning(f"🛵 **Costo de envío:** ${costo_envio:,.0f}")
+
+    total_total = total_items + costo_envio
+    
+    st.markdown(f"""
+        <div style="background-color: #E63946; padding: 20px; border-radius: 15px; text-align: center; margin: 20px 0;">
+            <h2 style="color: white; margin: 0;">TOTAL A PAGAR: ${total_total:,.0f}</h2>
+        </div>
+    """, unsafe_allow_html=True)
+    
+    if st.button("🔥 ENVIAR PEDIDO POR WHATSAPP", use_container_width=True):
         if nom:
             resumen = "\n".join([f"- {v['cant']}x {k} (${v['precio']*v['cant']:,.0f})" for k,v in st.session_state['carrito'].items()])
-            msg = f"🍔 *PEDIDO CANICHE FOOD*\n👤 *Cliente:* {nom}\n📍 *Entrega:* {ent}\n{resumen}\n💰 *TOTAL: ${total + envio:,.0f}*"
-            st.markdown(f'<meta http-equiv="refresh" content="0;URL=https://wa.me/{conf.get("Telefono")}?text={urllib.parse.quote(msg)}">', unsafe_allow_html=True)
+            msg = (
+                f"🍔 *NUEVO PEDIDO - CANICHE FOOD*\n"
+                f"👤 *Cliente:* {nom}\n"
+                f"📍 *Entrega:* {ent}\n"
+                f"{'🏠 *Retiro por local*' if ent == 'Retiro en Local' else '🛵 *Envío a domicilio*'}\n"
+                f"--------------------------\n"
+                f"{resumen}\n"
+                f"--------------------------\n"
+                f"💰 *TOTAL: ${total_total:,.0f}*"
+            )
+            tel = conf.get("Telefono", "5493822123456")
+            st.markdown(f'<meta http-equiv="refresh" content="0;URL=https://wa.me/{tel}?text={urllib.parse.quote(msg)}">', unsafe_allow_html=True)
+        else: st.error("⚠️ Por favor, ingresá tu nombre.")
+else:
+    st.info("¡Elegí tu comida favorita para armar el pedido! 🍔🍟")
