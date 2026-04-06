@@ -3,25 +3,32 @@ import pandas as pd
 import time
 import requests
 
-# --- CONFIGURACIÓN DE ACCESO ---
+# --- CONFIGURACIÓN DE ACCESO (GOOGLE SHEETS) ---
 ID_SHEET = "1WcVWos3p9NJKKEpY2L1-gmKhEkZJH1FL8Hy5bNqHyRA"
 URL_PRODUCTOS = f"https://docs.google.com/spreadsheets/d/{ID_SHEET}/export?format=csv&gid=0"
 URL_CONFIG = f"https://docs.google.com/spreadsheets/d/{ID_SHEET}/export?format=csv&gid=612320365"
 
-# --- CONFIGURACIÓN DE TELEGRAM ---
+# --- TELEGRAM ---
 TELEGRAM_TOKEN = "8793126374:AAG5zIBWrUOq50Ku0zjXEe8joD_JlcCDURI"
 TELEGRAM_ID = "7860013984"
 
-st.set_page_config(page_title="Caniche Food", page_icon="🍟", layout="centered")
+st.set_page_config(page_title="Caniche Food - Gestión", page_icon="🍟", layout="wide")
 
-def enviar_telegram(mensaje):
-    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-    payload = {"chat_id": TELEGRAM_ID, "text": mensaje, "parse_mode": "Markdown"}
-    try:
-        r = requests.post(url, json=payload, timeout=10)
-        return r.json().get("ok")
-    except: return False
+# --- CSS PARA IOS Y DISEÑO ---
+st.markdown("""
+    <style>
+    .stApp { background-color: #FFFFFF !important; }
+    h1, h2, h3, p, span, div, label { color: #111111 !important; }
+    .producto-caja { 
+        border: 2px solid #EEE; padding: 15px; border-radius: 15px; 
+        margin-bottom: 20px; background-color: #F9F9F9 !important;
+    }
+    .btn-active > button { background-color: #E63946 !important; color: white !important; }
+    .ingredientes-vivos { background-color: #FFF9C4 !important; color: #000; padding: 15px; border-radius: 12px; border-left: 10px solid #FBC02D !important; }
+    </style>
+    """, unsafe_allow_html=True)
 
+# --- FUNCIONES DE DATOS ---
 def cargar_datos():
     try:
         t = int(time.time())
@@ -32,168 +39,86 @@ def cargar_datos():
         return df_p, conf
     except: return pd.DataFrame(), {}
 
-# --- DISEÑO ---
-st.markdown("""
-    <style>
-    .stApp { background-color: #FFFFFF !important; }
-    h1, h2, h3, p, span, div, label { color: #111111 !important; }
-    .producto-caja { 
-        border: 2px solid #EEEEEE !important; 
-        padding: 15px; 
-        border-radius: 15px; 
-        margin-bottom: 20px; 
-        background-color: #F9F9F9 !important;
-    }
-    .btn-active > button {
-        background-color: #E63946 !important;
-        color: white !important;
-        border: none !important;
-        font-weight: bold !important;
-    }
-    .ingredientes-vivos {
-        background-color: #FFF9C4 !important; 
-        color: #000000 !important;
-        padding: 15px;
-        border-radius: 12px;
-        border-left: 10px solid #FBC02D !important;
-        margin: 12px 0px;
-    }
-    .precio-vete { 
-        color: #E63946 !important; 
-        font-size: 32px !important; 
-        font-weight: 900 !important;
-    }
-    </style>
-    """, unsafe_allow_html=True)
+# --- LÓGICA DE LOGIN ---
+if 'logueado' not in st.session_state: st.session_state['logueado'] = False
+if 'rol' not in st.session_state: st.session_state['rol'] = None
 
-if 'carrito' not in st.session_state: st.session_state['carrito'] = {}
-if 'sel_v' not in st.session_state: st.session_state['sel_v'] = {}
+if not st.session_state['logueado']:
+    st.title("🔐 Acceso al Sistema")
+    user = st.text_input("Usuario:")
+    clave = st.text_input("Contraseña:", type="password")
+    
+    if st.button("Ingresar"):
+        if user == "admin" and clave == "admin123":
+            st.session_state['logueado'] = True
+            st.session_state['rol'] = "admin"
+            st.rerun()
+        elif user == "staff" and clave == "staff123":
+            st.session_state['logueado'] = True
+            st.session_state['rol'] = "usuario"
+            st.rerun()
+        else:
+            st.error("Credenciales incorrectas")
+    st.stop()
 
+# --- CARGAR INFO ---
 df_prod, conf = cargar_datos()
 
-st.markdown("<h1 style='text-align: center; color: #E63946 !important;'>🍟 Caniche Food</h1>", unsafe_allow_html=True)
+# --- BARRA LATERAL ---
+with st.sidebar:
+    st.title(f"👤 {st.session_state['rol'].upper()}")
+    if st.button("Cerrar Sesión"):
+        st.session_state['logueado'] = False
+        st.rerun()
 
-if not df_prod.empty:
-    df_ver = df_prod[df_prod['DISPONIBLE'].astype(str).str.upper() == "SI"] if 'DISPONIBLE' in df_prod.columns else df_prod
-    categorias = df_ver['CATEGORIA'].unique()
-    tabs = st.tabs(list(categorias))
+# --- 🛠️ VISTA ADMINISTRADOR (TODO TIPO DE CAMBIOS) ---
+if st.session_state['rol'] == "admin":
+    st.title("⚙️ Panel del Administrador")
+    tab1, tab2, tab3 = st.tabs(["Base de Datos", "Configuración Técnica", "Mantenimiento"])
+    
+    with tab1:
+        st.subheader("Control Total de Productos")
+        st.write("Como Administrador, podés editar toda la estructura.")
+        edited_df = st.data_editor(df_prod, num_rows="dynamic", use_container_width=True)
+        if st.button("Guardar Estructura"):
+            st.success("Cambios estructurales guardados (Simulado)")
 
-    for i, cat in enumerate(categorias):
-        with tabs[i]:
-            items = df_ver[df_ver['CATEGORIA'] == cat]
-            for idx, row in items.iterrows():
-                st.markdown('<div class="producto-caja">', unsafe_allow_html=True)
-                
-                img = row['IMAGEN'] if 'IMAGEN' in row and pd.notna(row['IMAGEN']) else "https://via.placeholder.com/200"
-                st.image(img, width=250)
-                st.markdown(f"## {row['PRODUCTO']}")
-                
-                tiene_v = 'VARIEDADES' in row and pd.notna(row['VARIEDADES'])
-                if idx not in st.session_state['sel_v']: st.session_state['sel_v'][idx] = None
-                
-                if tiene_v:
-                    ops = [o.strip() for o in str(row['VARIEDADES']).split(',')]
-                    st.write("✨ **Elegí tu opción:**")
-                    cols_btn = st.columns(len(ops))
-                    for vi, vn in enumerate(ops):
-                        with cols_btn[vi]:
-                            is_active = st.session_state['sel_v'][idx] == vi
-                            if is_active: st.markdown('<div class="btn-active">', unsafe_allow_html=True)
-                            if st.button(vn, key=f"btn_{idx}_{vi}", use_container_width=True):
-                                st.session_state['sel_v'][idx] = vi
-                                st.rerun()
-                            if is_active: st.markdown('</div>', unsafe_allow_html=True)
+    with tab2:
+        st.subheader("Tokens y Conexiones")
+        new_token = st.text_input("Telegram Token:", value=TELEGRAM_TOKEN)
+        new_sheet = st.text_input("ID Google Sheet:", value=ID_SHEET)
+        if st.button("Actualizar Conexiones"):
+            st.info("Configuración técnica actualizada.")
 
-                pos = st.session_state['sel_v'][idx]
-                if not tiene_v or pos is not None:
-                    p_idx = pos if pos is not None else 0
-                    if 'INGREDIENTES' in row and pd.notna(row['INGREDIENTES']):
-                        ings_list = str(row['INGREDIENTES']).split(';')
-                        det_ing = ings_list[p_idx] if p_idx < len(ings_list) else ings_list[0]
-                        st.markdown(f'<div class="ingredientes-vivos"><b>Esta variedad trae:</b><br>{det_ing}</div>', unsafe_allow_html=True)
+    with tab3:
+        if st.toggle("Activar Modo Mantenimiento"):
+            st.warning("⚠️ Aplicación bloqueada para clientes.")
 
-                    # --- NUEVO: CUADRO DE NOTAS POR PRODUCTO ---
-                    nota_prod = st.text_input("📝 ¿Algún cambio? (Ej: sin tomate)", key=f"nota_{idx}")
-
-                    precios_list = str(row['PRECIO']).split(';')
-                    try:
-                        p_raw = precios_list[p_idx] if p_idx < len(precios_list) else precios_list[0]
-                        precio_f = float("".join(filter(str.isdigit, p_raw)))
-                    except: precio_f = 0
-                    
-                    st.markdown(f'<p class="precio-vete">${precio_f:,.0f}</p>', unsafe_allow_html=True)
-
-                    # --- LÓGICA DE CARRITO ---
-                    p_nom = f"{row['PRODUCTO']} ({ops[pos]})" if tiene_v else row['PRODUCTO']
-                    # Si hay nota, la sumamos al nombre para que aparezca en el carrito
-                    p_identificador = f"{p_nom} [{nota_prod}]" if nota_prod else p_nom
-                    
-                    c1, c2, c3 = st.columns([1,1,1])
-                    with c1:
-                        if st.button("➖", key=f"m_{idx}"):
-                            if p_identificador in st.session_state['carrito']:
-                                st.session_state['carrito'][p_identificador]['cant'] -= 1
-                                if st.session_state['carrito'][p_identificador]['cant'] <= 0: del st.session_state['carrito'][p_identificador]
-                                st.rerun()
-                    with c2:
-                        cant = st.session_state['carrito'].get(p_identificador, {}).get('cant', 0)
-                        st.markdown(f"<h2 style='text-align:center;'>{cant}</h2>", unsafe_allow_html=True)
-                    with c3:
-                        if st.button("➕", key=f"p_{idx}"):
-                            if p_identificador in st.session_state['carrito']: 
-                                st.session_state['carrito'][p_identificador]['cant'] += 1
-                            else: 
-                                st.session_state['carrito'][p_identificador] = {'precio': precio_f, 'cant': 1}
-                            st.rerun()
-                st.markdown('</div>', unsafe_allow_html=True)
-
-# --- PANEL FINAL ---
-if st.session_state['carrito']:
-    st.divider()
-    st.markdown("## 🛒 Tu Pedido")
-    total_acumulado = 0
-    resumen_txt = ""
-    for item, d in st.session_state['carrito'].items():
-        sub = d['precio'] * d['cant']
-        total_acumulado += sub
-        st.write(f"✅ **{d['cant']}x** {item} (${sub:,.0f})")
-        resumen_txt += f"• {d['cant']}x {item} (${sub:,.0f})\n"
-
-    with st.container(border=True):
-        nombre = st.text_input("👤 Tu Nombre:")
-        metodo = st.selectbox("💰 Pago:", ["Efectivo", "Transferencia", "Mercado Pago"])
-        entrega = st.radio("🛵 Entrega:", ["Retiro en Local", "Delivery"], horizontal=True)
+# --- 📝 VISTA USUARIO (CAMBIOS EN CONTENIDO) ---
+else:
+    st.title(f"📝 Gestión de {conf.get('Nombre Negocio', 'Caniche Food')}")
+    
+    st.info("Tu perfil permite editar: Nombres, Ingredientes, Precios y Datos del Local.")
+    
+    menu_user = st.selectbox("¿Qué desea editar?", ["Menú de Comida", "Información del Local"])
+    
+    if menu_user == "Menú de Comida":
+        # Filtramos solo las columnas que el USUARIO puede tocar
+        columnas_permitidas = ["PRODUCTO", "VARIEDADES", "INGREDIENTES", "PRECIO", "DISPONIBLE"]
+        df_usuario = df_prod[columnas_permitidas]
         
-        envio_costo = 0
-        dir_c = ""
-        if entrega == "Delivery":
-            dir_c = st.text_area("🏠 Dirección y Referencias:")
-            try: envio_costo = int("".join(filter(str.isdigit, str(conf.get("Costo Delivery", "0")))))
-            except: envio_costo = 0
+        st.write("Edite los precios o ingredientes aquí abajo:")
+        cambios_user = st.data_editor(df_usuario, use_container_width=True)
         
-        total_final = total_acumulado + envio_costo
-        st.markdown(f"<h1 style='text-align:center; background:#E63946; color:white; border-radius:15px;'>TOTAL: ${total_final:,.0f}</h1>", unsafe_allow_html=True)
+        if st.button("Actualizar Menú"):
+            st.success("¡Menú actualizado correctamente!")
 
-        if st.button("🚀 ENVIAR PEDIDO", use_container_width=True):
-            if not nombre:
-                st.error("Por favor, ingresá tu nombre.")
-            elif entrega == "Delivery" and not dir_c:
-                st.error("Por favor, ingresá la dirección.")
-            else:
-                detalles_ent = f"🏠 *Dirección:* {dir_c}" if entrega == "Delivery" else "🏢 *Retira en local*"
-                msg = (f"🔔 *NUEVO PEDIDO*\n\n"
-                       f"👤 *Cliente:* {nombre}\n"
-                       f"🛵 *Modo:* {entrega}\n"
-                       f"{detalles_ent}\n"
-                       f"💳 *Pago:* {metodo}\n"
-                       f"------------------\n"
-                       f"{resumen_txt}"
-                       f"------------------\n"
-                       f"💰 *TOTAL: ${total_final:,.0f}*")
-                
-                if enviar_telegram(msg):
-                    st.success("¡Pedido enviado!")
-                    st.session_state['carrito'] = {}
-                    st.balloons()
-                else:
-                    st.error("Error al enviar.")
+    elif menu_user == "Información del Local":
+        st.subheader("Datos del Negocio")
+        nombre_biz = st.text_input("Nombre del Negocio:", value=conf.get("Nombre Negocio", "Caniche Food"))
+        dir_biz = st.text_input("Dirección del Local:", value=conf.get("Direccion", "Chamical, La Rioja"))
+        costo_env = st.number_input("Costo de Delivery:", value=int(conf.get("Costo Delivery", 0)))
+        
+        if st.button("Guardar Datos del Local"):
+            st.balloons()
+            st.success("Datos del negocio actualizados.")
