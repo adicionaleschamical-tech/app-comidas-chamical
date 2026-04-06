@@ -32,12 +32,11 @@ def cargar_datos():
         return df_p, conf
     except: return pd.DataFrame(), {}
 
-# --- DISEÑO DE BOTONES Y VISIBILIDAD ---
+# --- DISEÑO ---
 st.markdown("""
     <style>
     .stApp { background-color: #FFFFFF !important; }
     h1, h2, h3, p, span, div, label { color: #111111 !important; }
-
     .producto-caja { 
         border: 2px solid #EEEEEE !important; 
         padding: 15px; 
@@ -45,19 +44,12 @@ st.markdown("""
         margin-bottom: 20px; 
         background-color: #F9F9F9 !important;
     }
-
     .btn-active > button {
         background-color: #E63946 !important;
         color: white !important;
         border: none !important;
         font-weight: bold !important;
     }
-
-    .stButton > button {
-        height: 45px !important;
-        border-radius: 8px !important;
-    }
-
     .ingredientes-vivos {
         background-color: #FFF9C4 !important; 
         color: #000000 !important;
@@ -65,9 +57,7 @@ st.markdown("""
         border-radius: 12px;
         border-left: 10px solid #FBC02D !important;
         margin: 12px 0px;
-        font-size: 16px !important;
     }
-
     .precio-vete { 
         color: #E63946 !important; 
         font-size: 32px !important; 
@@ -122,6 +112,9 @@ if not df_prod.empty:
                         det_ing = ings_list[p_idx] if p_idx < len(ings_list) else ings_list[0]
                         st.markdown(f'<div class="ingredientes-vivos"><b>Esta variedad trae:</b><br>{det_ing}</div>', unsafe_allow_html=True)
 
+                    # --- NUEVO: CUADRO DE NOTAS POR PRODUCTO ---
+                    nota_prod = st.text_input("📝 ¿Algún cambio? (Ej: sin tomate)", key=f"nota_{idx}")
+
                     precios_list = str(row['PRECIO']).split(';')
                     try:
                         p_raw = precios_list[p_idx] if p_idx < len(precios_list) else precios_list[0]
@@ -130,21 +123,27 @@ if not df_prod.empty:
                     
                     st.markdown(f'<p class="precio-vete">${precio_f:,.0f}</p>', unsafe_allow_html=True)
 
+                    # --- LÓGICA DE CARRITO ---
                     p_nom = f"{row['PRODUCTO']} ({ops[pos]})" if tiene_v else row['PRODUCTO']
+                    # Si hay nota, la sumamos al nombre para que aparezca en el carrito
+                    p_identificador = f"{p_nom} [{nota_prod}]" if nota_prod else p_nom
+                    
                     c1, c2, c3 = st.columns([1,1,1])
                     with c1:
                         if st.button("➖", key=f"m_{idx}"):
-                            if p_nom in st.session_state['carrito']:
-                                st.session_state['carrito'][p_nom]['cant'] -= 1
-                                if st.session_state['carrito'][p_nom]['cant'] <= 0: del st.session_state['carrito'][p_nom]
+                            if p_identificador in st.session_state['carrito']:
+                                st.session_state['carrito'][p_identificador]['cant'] -= 1
+                                if st.session_state['carrito'][p_identificador]['cant'] <= 0: del st.session_state['carrito'][p_identificador]
                                 st.rerun()
                     with c2:
-                        cant = st.session_state['carrito'].get(p_nom, {}).get('cant', 0)
+                        cant = st.session_state['carrito'].get(p_identificador, {}).get('cant', 0)
                         st.markdown(f"<h2 style='text-align:center;'>{cant}</h2>", unsafe_allow_html=True)
                     with c3:
                         if st.button("➕", key=f"p_{idx}"):
-                            if p_nom in st.session_state['carrito']: st.session_state['carrito'][p_nom]['cant'] += 1
-                            else: st.session_state['carrito'][p_nom] = {'precio': precio_f, 'cant': 1}
+                            if p_identificador in st.session_state['carrito']: 
+                                st.session_state['carrito'][p_identificador]['cant'] += 1
+                            else: 
+                                st.session_state['carrito'][p_identificador] = {'precio': precio_f, 'cant': 1}
                             st.rerun()
                 st.markdown('</div>', unsafe_allow_html=True)
 
@@ -168,7 +167,7 @@ if st.session_state['carrito']:
         envio_costo = 0
         dir_c = ""
         if entrega == "Delivery":
-            dir_c = st.text_area("🏠 Dirección y Referencias (Ej: Calle Falsa 123, portón verde):")
+            dir_c = st.text_area("🏠 Dirección y Referencias:")
             try: envio_costo = int("".join(filter(str.isdigit, str(conf.get("Costo Delivery", "0")))))
             except: envio_costo = 0
         
@@ -179,15 +178,13 @@ if st.session_state['carrito']:
             if not nombre:
                 st.error("Por favor, ingresá tu nombre.")
             elif entrega == "Delivery" and not dir_c:
-                st.error("Por favor, ingresá la dirección para el Delivery.")
+                st.error("Por favor, ingresá la dirección.")
             else:
-                # --- CORRECCIÓN AQUÍ: Agregamos la dirección al mensaje ---
-                detalles_entrega = f"🏠 *Dirección:* {dir_c}" if entrega == "Delivery" else "🏢 *Retira en local*"
-                
+                detalles_ent = f"🏠 *Dirección:* {dir_c}" if entrega == "Delivery" else "🏢 *Retira en local*"
                 msg = (f"🔔 *NUEVO PEDIDO*\n\n"
                        f"👤 *Cliente:* {nombre}\n"
                        f"🛵 *Modo:* {entrega}\n"
-                       f"{detalles_entrega}\n"
+                       f"{detalles_ent}\n"
                        f"💳 *Pago:* {metodo}\n"
                        f"------------------\n"
                        f"{resumen_txt}"
@@ -195,8 +192,8 @@ if st.session_state['carrito']:
                        f"💰 *TOTAL: ${total_final:,.0f}*")
                 
                 if enviar_telegram(msg):
-                    st.success("¡Pedido enviado! Revisá tu Telegram X.")
+                    st.success("¡Pedido enviado!")
                     st.session_state['carrito'] = {}
                     st.balloons()
                 else:
-                    st.error("Error al enviar. ¿Diste START al bot?")
+                    st.error("Error al enviar.")
