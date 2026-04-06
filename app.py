@@ -12,9 +12,6 @@ URL_PRODUCTOS = f"https://docs.google.com/spreadsheets/d/{ID_SHEET}/export?forma
 URL_CONFIG = f"https://docs.google.com/spreadsheets/d/{ID_SHEET}/export?format=csv&gid=612320365"
 
 # --- TELEGRAM (usando st.secrets para seguridad) ---
-# Para usar esto, creá un archivo .streamlit/secrets.toml con:
-# TELEGRAM_TOKEN = "tu_token"
-# TELEGRAM_ID = "tu_id"
 try:
     TELEGRAM_TOKEN = st.secrets["TELEGRAM_TOKEN"]
     TELEGRAM_ID = st.secrets["TELEGRAM_ID"]
@@ -76,6 +73,8 @@ if 'rol' not in st.session_state:
     st.session_state['rol'] = 'cliente'
 if 'carrito' not in st.session_state:
     st.session_state['carrito'] = {}
+if 'sel_v' not in st.session_state:
+    st.session_state['sel_v'] = {}  # <--- ESTA ES LA LÍNEA QUE FALTABA
 if 'ultima_verificacion' not in st.session_state:
     st.session_state['ultima_verificacion'] = 0
 
@@ -123,6 +122,7 @@ with st.sidebar:
         if st.button("Cerrar Sesión"):
             st.session_state['rol'] = 'cliente'
             st.session_state['carrito'] = {}
+            st.session_state['sel_v'] = {}  # También limpiamos las selecciones
             st.rerun()
 
 # --- VISTAS DE GESTIÓN ---
@@ -188,6 +188,7 @@ else:
                             
                             if tiene_v:
                                 ops = [o.strip() for o in str(row['VARIEDADES']).split(',')]
+                                # Asegurar que el índice existe para este producto
                                 if idx not in st.session_state['sel_v']:
                                     st.session_state['sel_v'][idx] = 0
                                 
@@ -199,7 +200,11 @@ else:
                                     horizontal=True,
                                     label_visibility="collapsed"
                                 )
-                                st.session_state['sel_v'][idx] = ops.index(variedad_seleccionada)
+                                # Actualizar el índice seleccionado
+                                nuevo_idx = ops.index(variedad_seleccionada)
+                                if st.session_state['sel_v'][idx] != nuevo_idx:
+                                    st.session_state['sel_v'][idx] = nuevo_idx
+                                    st.rerun()
                                 p_idx = st.session_state['sel_v'][idx]
                             else:
                                 p_idx = 0
