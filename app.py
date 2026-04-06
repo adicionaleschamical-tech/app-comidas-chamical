@@ -12,13 +12,17 @@ URL_CONFIG = f"https://docs.google.com/spreadsheets/d/{ID_SHEET}/export?format=c
 
 st.set_page_config(page_title="Caniche Food", page_icon="🍔", layout="centered")
 
-# --- ESTILOS CSS PARA CELULAR ---
+# --- ESTILOS CSS ---
 st.markdown("""
     <style>
-    .stButton > button { width: 100%; height: 45px; font-size: 18px; font-weight: bold; border-radius: 8px; }
-    div[data-testid="column"] { display: flex; align-items: center; justify-content: center; }
-    h2 { margin-top: 0px !important; margin-bottom: 0px !important; }
-    .stSelectbox label { font-size: 14px; font-weight: bold; }
+    /* Botones más compactos */
+    .stButton > button { width: 100%; height: 40px; font-size: 16px; font-weight: bold; border-radius: 8px; }
+    /* Centrar elementos en columnas */
+    div[data-testid="column"] { display: flex; align-items: center; justify-content: center; flex-direction: column; }
+    /* Ajuste de márgenes para que todo entre en menos espacio */
+    .stContainer { padding: 10px !important; }
+    h2 { margin: 0px !important; font-size: 24px !important; }
+    h3 { margin-top: 5px !important; font-size: 20px !important; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -32,16 +36,14 @@ def cargar_todo():
         t = int(time.time())
         df_c = pd.read_csv(f"{URL_CONFIG}&t={t}")
         conf_dict = dict(zip(df_c.iloc[:, 0].astype(str).str.strip(), df_c.iloc[:, 1].astype(str).str.strip()))
-        
         df_p = pd.read_csv(f"{URL_PRODUCTOS}&t={t}")
         df_p.columns = [str(c).strip().capitalize() for c in df_p.columns]
         return df_p, conf_dict
-    except:
-        return pd.DataFrame(), {}
+    except: return pd.DataFrame(), {}
 
 df_prod, conf = cargar_todo()
 
-# --- LOGIN OCULTO (SIDEBAR) ---
+# --- LOGIN OCULTO ---
 with st.sidebar:
     with st.expander("🔐 Acceso Personal"):
         dni_in = st.text_input("DNI / Usuario")
@@ -53,9 +55,7 @@ with st.sidebar:
             elif dni_in == conf.get("User") and pass_in == conf.get("User_Pass"):
                 st.session_state['user_role'] = "usuario"
                 st.rerun()
-            else:
-                st.error("Datos incorrectos")
-    
+            else: st.error("Datos incorrectos")
     if st.session_state['user_role']:
         if st.button("Cerrar Sesión"):
             st.session_state['user_role'] = None
@@ -66,73 +66,66 @@ st.title("🍔 Caniche Food")
 st.caption(f"📍 {conf.get('Direccion Local', 'Chamical')}")
 
 if not df_prod.empty:
-    # FILTRO DE DISPONIBILIDAD
-    # Si es admin ve todo, si no, solo lo que dice "SI"
-    if st.session_state['user_role'] == "admin":
-        df_ver = df_prod
-    else:
-        # Aseguramos que la columna 'Disponible' exista y filtramos
-        if 'Disponible' in df_prod.columns:
-            df_ver = df_prod[df_prod['Disponible'].astype(str).str.upper().str.strip() == "SI"]
-        else:
-            df_ver = df_prod
-
-    # VALIDACIÓN CRÍTICA: ¿Hay categorías para mostrar?
-    if not df_ver.empty and 'Categoria' in df_ver.columns:
+    df_ver = df_prod if st.session_state['user_role'] == "admin" else df_prod[df_prod['Disponible'].astype(str).str.upper() == "SI"]
+    
+    if not df_ver.empty:
         categorias = [c for c in df_ver['Categoria'].unique() if pd.notna(c)]
+        tabs = st.tabs(categorias)
         
-        if categorias:
-            tabs = st.tabs(categorias)
-            for i, cat in enumerate(categorias):
-                with tabs[i]:
-                    items = df_ver[df_ver['Categoria'] == cat]
-                    for _, row in items.iterrows():
-                        with st.container(border=True):
+        for i, cat in enumerate(categorias):
+            with tabs[i]:
+                items = df_ver[df_ver['Categoria'] == cat]
+                for idx, row in items.iterrows():
+                    with st.container(border=True):
+                        # --- DISEÑO REDUCIDO: Imagen a la izquierda, Info a la derecha ---
+                        col_img, col_info = st.columns([1, 1.5])
+                        
+                        with col_img:
                             img = row.get('Imagen')
-                            st.image(img if pd.notna(img) else "https://via.placeholder.com/400x200", use_container_width=True)
+                            # FIXED: Imagen con ancho controlado (150px) para que no sea gigante
+                            st.image(img if pd.notna(img) else "https://via.placeholder.com/150", width=150)
+                        
+                        with col_info:
                             st.subheader(row['Producto'])
                             
-                            # Variedades
+                            # Variedades (Sub-menú)
                             var_sel = ""
                             if 'Variedades' in row and pd.notna(row['Variedades']):
                                 ops = [o.strip() for o in str(row['Variedades']).split(',')]
-                                var_sel = st.selectbox("Variedad:", ops, key=f"v_{row['Producto']}_{i}")
+                                var_sel = st.selectbox("Variedad:", ops, key=f"v_{idx}")
                             
                             st.write(f"### ${row['Precio']}")
 
-                            # Controles Horizontales
-                            c1, c2, c3 = st.columns([1, 1, 1])
-                            p_id = f"{row['Producto']} ({var_sel})" if var_sel else row['Producto']
-                            
-                            with c1:
-                                if st.button("➖", key=f"r_{p_id}_{i}"):
-                                    if p_id in st.session_state['carrito']:
-                                        st.session_state['carrito'][p_id]['cant'] -= 1
-                                        if st.session_state['carrito'][p_id]['cant'] <= 0: del st.session_state['carrito'][p_id]
-                                        st.rerun()
-                            with c2:
-                                n = st.session_state['carrito'].get(p_id, {}).get('cant', 0)
-                                st.markdown(f"<h2 style='text-align:center;'>{n}</h2>", unsafe_allow_html=True)
-                            with c3:
-                                if st.button("➕", key=f"a_{p_id}_{i}"):
-                                    if p_id in st.session_state['carrito']:
-                                        st.session_state['carrito'][p_id]['cant'] += 1
-                                    else:
-                                        st.session_state['carrito'][p_id] = {'precio': row['Precio'], 'cant': 1}
+                        # --- BOTONES + Y - (Abajo de la info, bien horizontales) ---
+                        st.write("---")
+                        c1, c2, c3 = st.columns([1, 1, 1])
+                        p_id = f"{row['Producto']} ({var_sel})" if var_sel else row['Producto']
+                        
+                        with c1:
+                            if st.button("➖", key=f"r_{idx}"):
+                                if p_id in st.session_state['carrito']:
+                                    st.session_state['carrito'][p_id]['cant'] -= 1
+                                    if st.session_state['carrito'][p_id]['cant'] <= 0: del st.session_state['carrito'][p_id]
                                     st.rerun()
-        else:
-            st.warning("⚠️ No se encontraron categorías válidas en el Sheet.")
-    else:
-        st.warning("👋 ¡Hola! Por el momento no hay productos disponibles.")
+                        with c2:
+                            n = st.session_state['carrito'].get(p_id, {}).get('cant', 0)
+                            st.markdown(f"## {n}")
+                        with c3:
+                            if st.button("➕", key=f"a_{idx}"):
+                                if p_id in st.session_state['carrito']:
+                                    st.session_state['carrito'][p_id]['cant'] += 1
+                                else:
+                                    st.session_state['carrito'][p_id] = {'precio': row['Precio'], 'cant': 1}
+                                st.rerun()
 
-    # --- PANELES DE CONTROL ---
+    # --- PANELES SEGÚN ROL ---
     if st.session_state['user_role'] == "admin":
         st.divider()
-        st.subheader("🛠️ Panel Administrador")
+        st.subheader("🛠️ Panel Admin")
         st.dataframe(df_prod)
     elif st.session_state['user_role'] == "usuario":
         st.divider()
-        st.subheader("📋 Vista de Stock")
+        st.subheader("📋 Stock")
         st.table(df_prod[['Producto', 'Precio', 'Disponible']])
 
     # --- CARRITO ---
@@ -159,5 +152,4 @@ if not df_prod.empty:
                 msg = f"🍔 *PEDIDO CANICHE FOOD*\n👤 *Cliente:* {nombre}\n📍 *Entrega:* {entrega}\n{txt}\n💰 *TOTAL: ${total_f:,.0f}*"
                 url = f"https://wa.me/{conf.get('Telefono')}?text={urllib.parse.quote(msg)}"
                 st.markdown(f'<meta http-equiv="refresh" content="0;URL={url}">', unsafe_allow_html=True)
-            else:
-                st.error("Falta tu nombre")
+            else: st.error("Falta tu nombre")
