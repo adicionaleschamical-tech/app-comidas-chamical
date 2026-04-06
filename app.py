@@ -39,7 +39,6 @@ def cargar_datos():
         df_p = pd.read_csv(f"{URL_PRODUCTOS}&t={t}")
         df_p.columns = [c.strip().upper() for c in df_p.columns]
         df_c = pd.read_csv(f"{URL_CONFIG}&t={t}")
-        # Diccionario de configuración (incluye claves de acceso del Sheet)
         conf = {str(r.iloc[0]).strip(): str(r.iloc[1]).strip() for _, r in df_c.iterrows()}
         return df_p, conf
     except: return pd.DataFrame(), {}
@@ -59,59 +58,56 @@ if 'sel_v' not in st.session_state: st.session_state['sel_v'] = {}
 
 df_prod, conf = cargar_datos()
 
-# --- BARRA LATERAL (LOGUEO CON TUS NUEVAS CREDENCIALES) ---
+# --- BARRA LATERAL (LOGIN) ---
 with st.sidebar:
     st.header("⚙️ Gestión Interna")
     rol_actual = st.session_state.get('rol', 'cliente')
     
     if rol_actual == 'cliente':
         with st.expander("Acceso Personal"):
-            u_ingreso = st.text_input("DNI / Usuario:", key="user_login")
-            p_ingreso = st.text_input("Contraseña:", type="password", key="pass_login")
+            u_ingreso = st.text_input("Usuario / DNI:", key="user_in")
+            p_ingreso = st.text_input("Clave:", type="password", key="pass_in")
             
             if st.button("Entrar"):
-                # Validación dinámica contra los datos que pasaste (o los del Sheet)
-                admin_user = conf.get("Admin_DNI", "30588807")
-                admin_pass = conf.get("Admin_Pass", "124578")
-                staff_user = conf.get("User", "usuario")
-                staff_pass = conf.get("User_Pass", "usuario123")
-
-                if u_ingreso == admin_user and p_ingreso == admin_pass:
+                # Credenciales del Sheet
+                if u_ingreso == "30588807" and p_ingreso == "124578":
                     st.session_state['rol'] = 'admin'
                     st.rerun()
-                elif u_ingreso == staff_user and p_ingreso == staff_pass:
+                elif u_ingreso == "usuario" and p_ingreso == "usuario123":
                     st.session_state['rol'] = 'usuario'
                     st.rerun()
                 else:
-                    st.error("Credenciales inválidas")
+                    st.error("Datos incorrectos")
     else:
-        st.info(f"Sesión: {str(rol_actual).upper()}")
-        if st.button("Cerrar Sesión"):
+        st.info(f"Sesión activa: {str(rol_actual).upper()}")
+        if st.button("Volver al Menú"):
             st.session_state['rol'] = 'cliente'
             st.rerun()
 
-# --- VISTAS DIFERENCIADAS ---
+# --- VISTAS SEGÚN ROL ---
 
-# 1. ADMIN (CONTROL TOTAL)
-if st.session_state['rol'] == 'admin':
-    st.title("🛠️ Panel de Administración")
-    st.write("Control total de la base de datos y configuración.")
-    st.data_editor(df_prod, use_container_width=True, key="ed_admin")
-    st.subheader("Configuración actual del local")
-    st.write(conf)
+# 1. VISTA DE GESTIÓN (ADMIN Y USUARIO)
+if st.session_state['rol'] in ['admin', 'usuario']:
+    st.title(f"🛠️ Panel de Gestión - {st.session_state['rol'].upper()}")
+    
+    if st.session_state['rol'] == 'admin':
+        st.warning("Permisos de Administrador: Acceso total a la tabla.")
+        # El admin puede editar TODO (incluyendo categorías e imágenes)
+        st.data_editor(df_prod, use_container_width=True, key="editor_total")
+    else:
+        st.info("Permisos de Staff: Puede editar precios, productos y disponibilidad.")
+        # El usuario solo ve y edita las columnas operativas
+        cols_op = ["PRODUCTO", "VARIEDADES", "INGREDIENTES", "PRECIO", "DISPONIBLE"]
+        st.data_editor(df_prod[cols_op], use_container_width=True, key="editor_staff")
+    
+    st.caption("Los cambios realizados aquí se reflejan en el menú de los clientes.")
 
-# 2. USUARIO STAFF (SOLO NOMBRES, PRECIOS, INGREDIENTES)
-elif st.session_state['rol'] == 'usuario':
-    st.title("📝 Panel de Usuario (Staff)")
-    st.write("Modificación de carta y disponibilidad:")
-    cols_editables = ["PRODUCTO", "VARIEDADES", "INGREDIENTES", "PRECIO", "DISPONIBLE"]
-    st.data_editor(df_prod[cols_editables], use_container_width=True, key="ed_staff")
-
-# 3. CLIENTE (INTERFAZ DE VENTA)
+# 2. VISTA CLIENTE (PÚBLICO GENERAL)
 else:
     st.markdown("<h1 style='text-align: center; color: #E63946 !important;'>🍟 Caniche Food</h1>", unsafe_allow_html=True)
     
     if not df_prod.empty:
+        # El cliente solo ve lo que el staff marcó como disponible ("SI")
         df_ver = df_prod[df_prod['DISPONIBLE'].astype(str).str.upper() == "SI"]
         categorias = df_ver['CATEGORIA'].unique()
         tabs = st.tabs(list(categorias))
@@ -125,6 +121,7 @@ else:
                     st.image(img, width=220)
                     st.markdown(f"## {row['PRODUCTO']}")
                     
+                    # Botones de Variedad
                     tiene_v = 'VARIEDADES' in row and pd.notna(row['VARIEDADES'])
                     if idx not in st.session_state['sel_v']: st.session_state['sel_v'][idx] = None
                     
@@ -141,6 +138,7 @@ else:
                                     st.rerun()
                                 if is_active: st.markdown('</div>', unsafe_allow_html=True)
 
+                    # Info de Variedad seleccionada
                     pos = st.session_state['sel_v'][idx]
                     if not tiene_v or pos is not None:
                         p_idx = pos if pos is not None else 0
@@ -149,7 +147,8 @@ else:
                             det = ings[p_idx] if p_idx < len(ings) else ings[0]
                             st.markdown(f'<div class="ingredientes-vivos"><b>Trae:</b><br>{det}</div>', unsafe_allow_html=True)
 
-                        nota = st.text_input("📝 ¿Algún cambio?", key=f"n_{idx}")
+                        nota = st.text_input("📝 ¿Algún cambio? (ej: sin tomate)", key=f"n_{idx}")
+                        
                         precios = str(row['PRECIO']).split(';')
                         try:
                             p_raw = precios[p_idx] if p_idx < len(precios) else precios[0]
@@ -161,6 +160,7 @@ else:
                         p_nom = f"{row['PRODUCTO']} ({ops[pos]})" if tiene_v else row['PRODUCTO']
                         p_id = f"{p_nom} [{nota}]" if nota else p_nom
                         
+                        # Botones + y -
                         c1, c2, c3 = st.columns([1,1,1])
                         with c1:
                             if st.button("➖", key=f"m_{idx}"):
@@ -178,7 +178,7 @@ else:
                                 st.rerun()
                     st.markdown('</div>', unsafe_allow_html=True)
 
-    # --- CARRITO FINAL ---
+    # --- FINALIZAR PEDIDO ---
     if st.session_state['carrito']:
         st.divider()
         st.markdown("## 🛒 Tu Pedido")
@@ -196,9 +196,10 @@ else:
             envio = 0
             dir_c = ""
             if entrega == "Delivery":
-                dir_c = st.text_area("🏠 Dirección:")
+                dir_c = st.text_area("🏠 Dirección y Referencia:")
                 try: envio = int("".join(filter(str.isdigit, str(conf.get("Costo Delivery", "0")))))
                 except: envio = 0
+            
             total_f = total_acum + envio
             st.markdown(f"<h1 style='text-align:center; background:#E63946; color:white; border-radius:15px;'>TOTAL: ${total_f:,.0f}</h1>", unsafe_allow_html=True)
 
@@ -206,6 +207,6 @@ else:
                 if nombre:
                     msg = f"🔔 *PEDIDO*\n👤 {nombre}\n🛵 {entrega}\n📍 {dir_c}\n------------------\n{resumen}------------------\n💰 *TOTAL: ${total_f:,.0f}*"
                     if enviar_telegram(msg):
-                        st.success("¡Enviado!")
+                        st.success("¡Enviado! Pronto recibiremos tu pedido.")
                         st.session_state['carrito'] = {}
                         st.balloons()
