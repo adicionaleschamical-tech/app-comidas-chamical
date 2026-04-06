@@ -46,7 +46,6 @@ st.markdown("""
         background-color: #F9F9F9 !important;
     }
 
-    /* Estilo para el botón SELECCIONADO (Rojo) */
     .btn-active > button {
         background-color: #E63946 !important;
         color: white !important;
@@ -54,7 +53,6 @@ st.markdown("""
         font-weight: bold !important;
     }
 
-    /* Estilo para el botón NO seleccionado (Gris) */
     .stButton > button {
         height: 45px !important;
         border-radius: 8px !important;
@@ -96,47 +94,34 @@ if not df_prod.empty:
             for idx, row in items.iterrows():
                 st.markdown('<div class="producto-caja">', unsafe_allow_html=True)
                 
-                # Imagen y Título
                 img = row['IMAGEN'] if 'IMAGEN' in row and pd.notna(row['IMAGEN']) else "https://via.placeholder.com/200"
                 st.image(img, width=250)
                 st.markdown(f"## {row['PRODUCTO']}")
                 
-                # Botones de Variedad
                 tiene_v = 'VARIEDADES' in row and pd.notna(row['VARIEDADES'])
                 if idx not in st.session_state['sel_v']: st.session_state['sel_v'][idx] = None
                 
                 if tiene_v:
                     ops = [o.strip() for o in str(row['VARIEDADES']).split(',')]
                     st.write("✨ **Elegí tu opción:**")
-                    
-                    # Crear una fila de botones
                     cols_btn = st.columns(len(ops))
                     for vi, vn in enumerate(ops):
                         with cols_btn[vi]:
-                            # Si está seleccionado, aplicamos la clase CSS 'btn-active'
                             is_active = st.session_state['sel_v'][idx] == vi
-                            if is_active:
-                                st.markdown('<div class="btn-active">', unsafe_allow_html=True)
-                            
+                            if is_active: st.markdown('<div class="btn-active">', unsafe_allow_html=True)
                             if st.button(vn, key=f"btn_{idx}_{vi}", use_container_width=True):
                                 st.session_state['sel_v'][idx] = vi
                                 st.rerun()
-                            
-                            if is_active:
-                                st.markdown('</div>', unsafe_allow_html=True)
+                            if is_active: st.markdown('</div>', unsafe_allow_html=True)
 
-                # Mostrar Detalles (Ingredientes y Precio)
                 pos = st.session_state['sel_v'][idx]
                 if not tiene_v or pos is not None:
                     p_idx = pos if pos is not None else 0
-                    
-                    # Ingredientes
                     if 'INGREDIENTES' in row and pd.notna(row['INGREDIENTES']):
                         ings_list = str(row['INGREDIENTES']).split(';')
                         det_ing = ings_list[p_idx] if p_idx < len(ings_list) else ings_list[0]
                         st.markdown(f'<div class="ingredientes-vivos"><b>Esta variedad trae:</b><br>{det_ing}</div>', unsafe_allow_html=True)
 
-                    # Precio
                     precios_list = str(row['PRECIO']).split(';')
                     try:
                         p_raw = precios_list[p_idx] if p_idx < len(precios_list) else precios_list[0]
@@ -145,7 +130,6 @@ if not df_prod.empty:
                     
                     st.markdown(f'<p class="precio-vete">${precio_f:,.0f}</p>', unsafe_allow_html=True)
 
-                    # Carrito (+ / -)
                     p_nom = f"{row['PRODUCTO']} ({ops[pos]})" if tiene_v else row['PRODUCTO']
                     c1, c2, c3 = st.columns([1,1,1])
                     with c1:
@@ -162,7 +146,6 @@ if not df_prod.empty:
                             if p_nom in st.session_state['carrito']: st.session_state['carrito'][p_nom]['cant'] += 1
                             else: st.session_state['carrito'][p_nom] = {'precio': precio_f, 'cant': 1}
                             st.rerun()
-                
                 st.markdown('</div>', unsafe_allow_html=True)
 
 # --- PANEL FINAL ---
@@ -171,7 +154,6 @@ if st.session_state['carrito']:
     st.markdown("## 🛒 Tu Pedido")
     total_acumulado = 0
     resumen_txt = ""
-    
     for item, d in st.session_state['carrito'].items():
         sub = d['precio'] * d['cant']
         total_acumulado += sub
@@ -183,19 +165,38 @@ if st.session_state['carrito']:
         metodo = st.selectbox("💰 Pago:", ["Efectivo", "Transferencia", "Mercado Pago"])
         entrega = st.radio("🛵 Entrega:", ["Retiro en Local", "Delivery"], horizontal=True)
         
-        envio = 0
+        envio_costo = 0
+        dir_c = ""
         if entrega == "Delivery":
-            dir_c = st.text_area("🏠 Dirección:")
-            try: envio = int("".join(filter(str.isdigit, str(conf.get("Costo Delivery", "0")))))
-            except: envio = 0
+            dir_c = st.text_area("🏠 Dirección y Referencias (Ej: Calle Falsa 123, portón verde):")
+            try: envio_costo = int("".join(filter(str.isdigit, str(conf.get("Costo Delivery", "0")))))
+            except: envio_costo = 0
         
-        total_final = total_acumulado + envio
+        total_final = total_acumulado + envio_costo
         st.markdown(f"<h1 style='text-align:center; background:#E63946; color:white; border-radius:15px;'>TOTAL: ${total_final:,.0f}</h1>", unsafe_allow_html=True)
 
         if st.button("🚀 ENVIAR PEDIDO", use_container_width=True):
-            if nombre:
-                msg = f"🔔 *NUEVO PEDIDO*\n👤 {nombre}\n🛵 {entrega}\n💳 {metodo}\n------------------\n{resumen_txt}------------------\n💰 *TOTAL: ${total_final:,.0f}*"
+            if not nombre:
+                st.error("Por favor, ingresá tu nombre.")
+            elif entrega == "Delivery" and not dir_c:
+                st.error("Por favor, ingresá la dirección para el Delivery.")
+            else:
+                # --- CORRECCIÓN AQUÍ: Agregamos la dirección al mensaje ---
+                detalles_entrega = f"🏠 *Dirección:* {dir_c}" if entrega == "Delivery" else "🏢 *Retira en local*"
+                
+                msg = (f"🔔 *NUEVO PEDIDO*\n\n"
+                       f"👤 *Cliente:* {nombre}\n"
+                       f"🛵 *Modo:* {entrega}\n"
+                       f"{detalles_entrega}\n"
+                       f"💳 *Pago:* {metodo}\n"
+                       f"------------------\n"
+                       f"{resumen_txt}"
+                       f"------------------\n"
+                       f"💰 *TOTAL: ${total_final:,.0f}*")
+                
                 if enviar_telegram(msg):
-                    st.success("¡Pedido enviado!")
+                    st.success("¡Pedido enviado! Revisá tu Telegram X.")
                     st.session_state['carrito'] = {}
                     st.balloons()
+                else:
+                    st.error("Error al enviar. ¿Diste START al bot?")
