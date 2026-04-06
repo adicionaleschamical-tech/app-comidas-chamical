@@ -12,9 +12,9 @@ URL_CONFIG = f"https://docs.google.com/spreadsheets/d/{ID_SHEET}/export?format=c
 TELEGRAM_TOKEN = "8793126374:AAG5zIBWrUOq50Ku0zjXEe8joD_JlcCDURI"
 TELEGRAM_ID = "7860013984"
 
-st.set_page_config(page_title="Caniche Food", page_icon="🍟", layout="centered")
+st.set_page_config(page_title="Gestión Caniche Food", page_icon="🍟", layout="centered")
 
-# --- DISEÑO ANTI-MODO OSCURO (iOS) ---
+# --- DISEÑO ---
 st.markdown("""
     <style>
     .stApp { background-color: #FFFFFF !important; }
@@ -57,57 +57,63 @@ if 'carrito' not in st.session_state: st.session_state['carrito'] = {}
 if 'sel_v' not in st.session_state: st.session_state['sel_v'] = {}
 
 df_prod, conf = cargar_datos()
+nombre_negocio = conf.get("Nombre Negocio", "Caniche Food")
 
-# --- BARRA LATERAL (LOGIN) ---
+# --- BARRA LATERAL ---
 with st.sidebar:
-    st.header("⚙️ Gestión Interna")
+    st.header("⚙️ Acceso Staff")
     rol_actual = st.session_state.get('rol', 'cliente')
     
     if rol_actual == 'cliente':
-        with st.expander("Acceso Personal"):
-            u_ingreso = st.text_input("Usuario / DNI:", key="user_in")
-            p_ingreso = st.text_input("Clave:", type="password", key="pass_in")
-            
+        with st.expander("Ingresar"):
+            u_in = st.text_input("Usuario / DNI:", key="u_log")
+            p_in = st.text_input("Clave:", type="password", key="p_log")
             if st.button("Entrar"):
-                # Credenciales del Sheet
-                if u_ingreso == "30588807" and p_ingreso == "124578":
+                if u_in == "30588807" and p_in == "124578":
                     st.session_state['rol'] = 'admin'
                     st.rerun()
-                elif u_ingreso == "usuario" and p_ingreso == "usuario123":
+                elif u_in == "usuario" and p_in == "usuario123":
                     st.session_state['rol'] = 'usuario'
                     st.rerun()
-                else:
-                    st.error("Datos incorrectos")
+                else: st.error("Datos incorrectos")
     else:
-        st.info(f"Sesión activa: {str(rol_actual).upper()}")
-        if st.button("Volver al Menú"):
+        st.info(f"Sesión: {str(rol_actual).upper()}")
+        if st.button("Cerrar Sesión"):
             st.session_state['rol'] = 'cliente'
             st.rerun()
 
-# --- VISTAS SEGÚN ROL ---
+# --- VISTAS ---
 
-# 1. VISTA DE GESTIÓN (ADMIN Y USUARIO)
+# 1. GESTIÓN (ADMIN Y USUARIO)
 if st.session_state['rol'] in ['admin', 'usuario']:
-    st.title(f"🛠️ Panel de Gestión - {st.session_state['rol'].upper()}")
+    st.title(f"🛠️ Panel: {nombre_negocio}")
     
-    if st.session_state['rol'] == 'admin':
-        st.warning("Permisos de Administrador: Acceso total a la tabla.")
-        # El admin puede editar TODO (incluyendo categorías e imágenes)
-        st.data_editor(df_prod, use_container_width=True, key="editor_total")
-    else:
-        st.info("Permisos de Staff: Puede editar precios, productos y disponibilidad.")
-        # El usuario solo ve y edita las columnas operativas
-        cols_op = ["PRODUCTO", "VARIEDADES", "INGREDIENTES", "PRECIO", "DISPONIBLE"]
-        st.data_editor(df_prod[cols_op], use_container_width=True, key="editor_staff")
+    tab_menu, tab_local = st.tabs(["🍔 Editar Menú", "🏠 Datos del Local"])
     
-    st.caption("Los cambios realizados aquí se reflejan en el menú de los clientes.")
+    with tab_menu:
+        st.write("Podés cambiar Nombres, Variedades, Ingredientes y Precios:")
+        cols_edit = ["PRODUCTO", "VARIEDADES", "INGREDIENTES", "PRECIO", "DISPONIBLE"]
+        if st.session_state['rol'] == 'admin':
+            # El Admin ve todas las columnas (incluyendo CATEGORIA e IMAGEN)
+            st.data_editor(df_prod, use_container_width=True, key="ed_full")
+        else:
+            # El Usuario solo las columnas operativas
+            st.data_editor(df_prod[cols_edit], use_container_width=True, key="ed_staff")
 
-# 2. VISTA CLIENTE (PÚBLICO GENERAL)
+    with tab_local:
+        if st.session_state['rol'] == 'admin':
+            st.write("Configuración General del Negocio:")
+            # Convertimos el diccionario 'conf' a DataFrame para que sea editable
+            df_conf = pd.DataFrame(list(conf.items()), columns=["Parámetro", "Valor"])
+            st.data_editor(df_conf, use_container_width=True, key="ed_conf")
+        else:
+            st.warning("Solo el Administrador puede cambiar el nombre y datos del local.")
+
+# 2. CLIENTE
 else:
-    st.markdown("<h1 style='text-align: center; color: #E63946 !important;'>🍟 Caniche Food</h1>", unsafe_allow_html=True)
+    st.markdown(f"<h1 style='text-align: center; color: #E63946 !important;'>🍟 {nombre_negocio}</h1>", unsafe_allow_html=True)
     
     if not df_prod.empty:
-        # El cliente solo ve lo que el staff marcó como disponible ("SI")
         df_ver = df_prod[df_prod['DISPONIBLE'].astype(str).str.upper() == "SI"]
         categorias = df_ver['CATEGORIA'].unique()
         tabs = st.tabs(list(categorias))
@@ -121,13 +127,11 @@ else:
                     st.image(img, width=220)
                     st.markdown(f"## {row['PRODUCTO']}")
                     
-                    # Botones de Variedad
                     tiene_v = 'VARIEDADES' in row and pd.notna(row['VARIEDADES'])
                     if idx not in st.session_state['sel_v']: st.session_state['sel_v'][idx] = None
                     
                     if tiene_v:
                         ops = [o.strip() for o in str(row['VARIEDADES']).split(',')]
-                        st.write("✨ **Elegí tu opción:**")
                         cols_btn = st.columns(len(ops))
                         for vi, vn in enumerate(ops):
                             with cols_btn[vi]:
@@ -138,7 +142,6 @@ else:
                                     st.rerun()
                                 if is_active: st.markdown('</div>', unsafe_allow_html=True)
 
-                    # Info de Variedad seleccionada
                     pos = st.session_state['sel_v'][idx]
                     if not tiene_v or pos is not None:
                         p_idx = pos if pos is not None else 0
@@ -147,8 +150,7 @@ else:
                             det = ings[p_idx] if p_idx < len(ings) else ings[0]
                             st.markdown(f'<div class="ingredientes-vivos"><b>Trae:</b><br>{det}</div>', unsafe_allow_html=True)
 
-                        nota = st.text_input("📝 ¿Algún cambio? (ej: sin tomate)", key=f"n_{idx}")
-                        
+                        nota = st.text_input("📝 Notas:", key=f"n_{idx}", placeholder="Sin cebolla, etc.")
                         precios = str(row['PRECIO']).split(';')
                         try:
                             p_raw = precios[p_idx] if p_idx < len(precios) else precios[0]
@@ -160,7 +162,6 @@ else:
                         p_nom = f"{row['PRODUCTO']} ({ops[pos]})" if tiene_v else row['PRODUCTO']
                         p_id = f"{p_nom} [{nota}]" if nota else p_nom
                         
-                        # Botones + y -
                         c1, c2, c3 = st.columns([1,1,1])
                         with c1:
                             if st.button("➖", key=f"m_{idx}"):
@@ -178,7 +179,7 @@ else:
                                 st.rerun()
                     st.markdown('</div>', unsafe_allow_html=True)
 
-    # --- FINALIZAR PEDIDO ---
+    # --- CARRITO ---
     if st.session_state['carrito']:
         st.divider()
         st.markdown("## 🛒 Tu Pedido")
@@ -194,9 +195,8 @@ else:
             nombre = st.text_input("👤 Tu Nombre:")
             entrega = st.radio("🛵 Entrega:", ["Retiro en Local", "Delivery"], horizontal=True)
             envio = 0
-            dir_c = ""
             if entrega == "Delivery":
-                dir_c = st.text_area("🏠 Dirección y Referencia:")
+                st.text_area("🏠 Dirección:")
                 try: envio = int("".join(filter(str.isdigit, str(conf.get("Costo Delivery", "0")))))
                 except: envio = 0
             
@@ -205,8 +205,8 @@ else:
 
             if st.button("🚀 ENVIAR PEDIDO", use_container_width=True):
                 if nombre:
-                    msg = f"🔔 *PEDIDO*\n👤 {nombre}\n🛵 {entrega}\n📍 {dir_c}\n------------------\n{resumen}------------------\n💰 *TOTAL: ${total_f:,.0f}*"
+                    msg = f"🔔 *PEDIDO*\n👤 {nombre}\n🛵 {entrega}\n------------------\n{resumen}------------------\n💰 *TOTAL: ${total_f:,.0f}*"
                     if enviar_telegram(msg):
-                        st.success("¡Enviado! Pronto recibiremos tu pedido.")
+                        st.success("¡Pedido enviado!")
                         st.session_state['carrito'] = {}
                         st.balloons()
