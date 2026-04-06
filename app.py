@@ -5,31 +5,46 @@ import time
 import unicodedata
 import requests
 
-# --- CONFIGURACIÓN DE ACCESO ---
+# --- CONFIGURACIÓN DE ACCESO (TU GOOGLE SHEETS) ---
 ID_SHEET = "1WcVWos3p9NJKKEpY2L1-gmKhEkZJH1FL8Hy5bNqHyRA"
 URL_PRODUCTOS = f"https://docs.google.com/spreadsheets/d/{ID_SHEET}/export?format=csv&gid=0"
 URL_CONFIG = f"https://docs.google.com/spreadsheets/d/{ID_SHEET}/export?format=csv&gid=612320365"
 
-# --- TUS DATOS DE TELEGRAM ---
+# --- TUS DATOS DE TELEGRAM (VERIFICADOS) ---
 TELEGRAM_TOKEN = "8793126374:AAG5zIBWrUOq50Ku0zjXEe8joD_JlcCDURI"
 TELEGRAM_ID = "7860013984"
 
 st.set_page_config(page_title="Caniche Food", page_icon="🍔", layout="centered")
 
+# --- FUNCIÓN DE ENVÍO CON DIAGNÓSTICO ---
 def enviar_telegram(mensaje):
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-    payload = {"chat_id": TELEGRAM_ID, "text": mensaje, "parse_mode": "Markdown"}
+    payload = {
+        "chat_id": TELEGRAM_ID, 
+        "text": mensaje, 
+        "parse_mode": "Markdown"
+    }
     try:
-        requests.post(url, json=payload)
-    except:
-        st.error("Error de conexión con el servidor de notificaciones.")
+        response = requests.post(url, json=payload)
+        resultado = response.json()
+        if resultado.get("ok"):
+            st.success("✅ ¡Pedido enviado a Telegram!")
+            return True
+        else:
+            # Esto te dirá exactamente qué falla (ej: "Forbidden: bot was blocked by the user")
+            st.error(f"❌ Error de Telegram: {resultado.get('description')}")
+            st.info("Asegurate de haberle dado 'START' a tu propio Bot en Telegram X.")
+            return False
+    except Exception as e:
+        st.error(f"❌ Error de conexión: {e}")
+        return False
 
 def limpiar_col(txt):
     txt = str(txt).strip().lower()
     txt = "".join(c for c in unicodedata.normalize('NFD', txt) if unicodedata.category(c) != 'Mn')
     return txt.capitalize()
 
-# --- ESTILO VISUAL FAST FOOD ---
+# --- ESTILO VISUAL ---
 st.markdown("""
     <style>
     .stApp { background-color: #F8F9FA; }
@@ -38,10 +53,10 @@ st.markdown("""
         padding: 20px; box-shadow: 0 8px 20px rgba(0,0,0,0.05); margin-bottom: 15px;
     }
     .btn-variedad-active > button { background-color: #E63946 !important; color: white !important; border: none; }
-    .ingredientes-box { background-color: #FFF9E6; padding: 15px; border-radius: 15px; border-left: 6px solid #FFB703; margin: 10px 0; font-size: 14px; }
-    .precio-tag { color: #E63946; font-size: 30px; font-weight: 900; }
-    .qty-container { background-color: #F1F1F1; border-radius: 50px; padding: 5px; display: flex; align-items: center; justify-content: center; gap: 15px; width: 150px; margin: 10px auto; }
-    .item-carrito { background: #f9f9f9; padding: 10px; border-radius: 10px; margin-bottom: 5px; border-left: 4px solid #E63946; }
+    .ingredientes-box { background-color: #FFF9E6; padding: 12px; border-radius: 12px; border-left: 5px solid #FFB703; margin: 10px 0; font-size: 13px; color: #555; }
+    .precio-tag { color: #E63946; font-size: 28px; font-weight: 900; margin-top: 10px; }
+    .qty-container { background-color: #F1F1F1; border-radius: 50px; padding: 5px; display: flex; align-items: center; justify-content: center; gap: 15px; width: 140px; margin: 10px auto; }
+    .item-resumen { background: #fdfdfd; padding: 10px; border-radius: 10px; margin-bottom: 8px; border-left: 4px solid #E63946; box-shadow: 2px 2px 5px rgba(0,0,0,0.02); }
     </style>
     """, unsafe_allow_html=True)
 
@@ -61,7 +76,8 @@ def cargar_datos():
 
 df_prod, conf = cargar_datos()
 
-st.markdown("<h1 style='text-align: center; color: #E63946;'>🍟 Caniche Food</h1>", unsafe_allow_html=True)
+st.markdown("<h1 style='text-align: center; color: #E63946; margin-bottom: 0;'>🍟 Caniche Food</h1>", unsafe_allow_html=True)
+st.markdown("<p style='text-align: center; color: #666;'>¡Elegí, confirmá y recibí!</p>", unsafe_allow_html=True)
 
 if not df_prod.empty:
     df_ver = df_prod[df_prod['Disponible'].astype(str).str.upper().str.strip() == "SI"] if 'Disponible' in df_prod.columns else df_prod
@@ -83,19 +99,20 @@ if not df_prod.empty:
                         pres = [p.strip() for p in str(row.get('Precio', '0')).split(';')]
                         imgs = [im.strip() for im in str(row.get('Imagen', '')).split(';')]
 
-                        c_img = imgs[0] if imgs and str(imgs[0]).startswith('http') else "https://via.placeholder.com/400x300?text=Comida"
+                        c_img = imgs[0] if imgs and str(imgs[0]).startswith('http') else "https://via.placeholder.com/400x300?text=Caniche+Food"
 
-                        col_img, col_info = st.columns([1, 2])
+                        col_img, col_info = st.columns([1, 1.5])
                         with col_img: st.image(c_img, use_container_width=True)
                         with col_info:
                             st.subheader(row['Producto'])
                             if has_v:
+                                st.write("👇 **Elegí tu variedad:**")
                                 cvs = st.columns(len(ops))
                                 for vi, vn in enumerate(ops):
                                     with cvs[vi]:
                                         est = "btn-variedad-active" if pos == vi else ""
                                         st.markdown(f'<div class="{est}">', unsafe_allow_html=True)
-                                        if st.button(vn, key=f"v_{idx}_{vi}"):
+                                        if st.button(vn, key=f"v_{idx}_{vi}", use_container_width=True):
                                             st.session_state['sel_v'][idx] = vi
                                             st.rerun()
                                         st.markdown('</div>', unsafe_allow_html=True)
@@ -109,10 +126,10 @@ if not df_prod.empty:
                                 except: d_pre = 0.0
 
                                 if d_ing:
-                                    st.markdown(f'<div class="ingredientes-box"><b>Esta variedad trae:</b><br>{d_ing}</div>', unsafe_allow_html=True)
+                                    st.markdown(f'<div class="ingredientes-box">📋 {d_ing}</div>', unsafe_allow_html=True)
                                 st.markdown(f'<div class="precio-tag">${d_pre:,.0f}</div>', unsafe_allow_html=True)
 
-                        # ID ÚNICO PARA EL CARRITO
+                        # --- LÓGICA DE CANTIDADES ---
                         p_id = f"{row['Producto']} ({ops[pos]})" if has_v and pos is not None else row['Producto']
                         
                         if not (has_v and pos is None):
@@ -125,8 +142,8 @@ if not df_prod.empty:
                                         if st.session_state['carrito'][p_id]['cant'] <= 0: del st.session_state['carrito'][p_id]
                                         st.rerun()
                             with c2:
-                                val_cant = st.session_state["carrito"].get(p_id, {}).get("cant", 0)
-                                st.markdown(f'<div style="font-size:20px; font-weight:bold;">{val_cant}</div>', unsafe_allow_html=True)
+                                cant_actual = st.session_state["carrito"].get(p_id, {}).get("cant", 0)
+                                st.markdown(f'<div style="font-size:22px; font-weight:bold; text-align:center;">{cant_actual}</div>', unsafe_allow_html=True)
                             with c3:
                                 if st.button("+", key=f"a_{idx}"):
                                     if p_id in st.session_state['carrito']: st.session_state['carrito'][p_id]['cant'] += 1
@@ -134,60 +151,65 @@ if not df_prod.empty:
                                     st.rerun()
                             st.markdown('</div>', unsafe_allow_html=True)
 
-# --- RESUMEN Y FINALIZACIÓN ---
+# --- PANEL DE FINALIZACIÓN ---
 if st.session_state['carrito']:
     st.divider()
-    st.header("🛒 Detalle de tu Pedido")
+    st.header("📋 Resumen de tu Pedido")
     
-    total_prod = 0
-    resumen_texto = "" # Para Telegram
+    total_acumulado = 0
+    texto_telegram = ""
     
-    for nombre_item, datos in st.session_state['carrito'].items():
-        subtotal = datos['precio'] * datos['cant']
-        total_prod += subtotal
-        # Mostrar en la Web
+    # Mostrar el detalle en la web para que el cliente esté seguro
+    for item, datos in st.session_state['carrito'].items():
+        sub = datos['precio'] * datos['cant']
+        total_acumulado += sub
         st.markdown(f"""
-            <div class="item-carrito">
-                <b>{datos['cant']}x</b> {nombre_item} <br>
-                <span style="color:#E63946;">Subtotal: ${subtotal:,.0f}</span>
+            <div class="item-resumen">
+                <b>{datos['cant']}x {item}</b><br>
+                <small style="color:#E63946;">Subtotal: ${sub:,.0f}</small>
             </div>
         """, unsafe_allow_html=True)
-        # Acumular para Telegram
-        resumen_texto += f"• {datos['cant']}x {nombre_item} - ${subtotal:,.0f}\n"
-    
+        texto_telegram += f"• {datos['cant']}x {item} (${sub:,.0f})\n"
+
     st.write("")
-    nom = st.text_input("👤 Tu Nombre:")
-    pago = st.selectbox("💰 Medio de Pago:", ["Efectivo", "Transferencia", "Mercado Pago"])
-    ent = st.radio("🛵 Entrega:", ["Retiro en Local", "Delivery"], horizontal=True)
-    
-    costo_envio = 0
-    dir_cliente = ""
-    if ent == "Delivery":
-        dir_cliente = st.text_area("🏠 Dirección y referencias:")
-        try: costo_envio = int("".join(filter(str.isdigit, str(conf.get("Costo Delivery", "500")))))
-        except: costo_envio = 0
-        st.warning(f"Costo de envío: ${costo_envio:,.0f}")
-    else:
-        st.info(f"📍 Retirás en: {conf.get('Direccion Local', 'Chamical')}")
+    with st.container(border=True):
+        st.subheader("📍 Datos de entrega")
+        nom = st.text_input("¿A nombre de quién?")
+        pago = st.selectbox("¿Cómo vas a pagar?", ["Efectivo", "Transferencia / Alias", "Mercado Pago"])
+        ent = st.radio("¿Retiro o Envío?", ["Retiro en Local", "Delivery"], horizontal=True)
+        
+        costo_envio = 0
+        dir_cliente = ""
+        if ent == "Delivery":
+            dir_cliente = st.text_area("Dirección exacta:")
+            try: costo_envio = int("".join(filter(str.isdigit, str(conf.get("Costo Delivery", "0")))))
+            except: costo_envio = 0
+            if costo_envio > 0: st.info(f"Costo de envío: ${costo_envio:,.0f}")
+        
+        total_final = total_acumulado + costo_envio
+        st.markdown(f"<h2 style='text-align:center; background:#E63946; color:white; padding:15px; border-radius:15px;'>TOTAL: ${total_final:,.0f}</h2>", unsafe_allow_html=True)
 
-    total_total = total_prod + costo_envio
-    st.markdown(f"<h2 style='text-align:center; background:#E63946; color:white; padding:15px; border-radius:15px;'>TOTAL: ${total_total:,.0f}</h2>", unsafe_allow_html=True)
-
-    if st.button("🚀 CONFIRMAR PEDIDO", use_container_width=True):
-        if nom and (ent == "Retiro en Local" or dir_cliente):
-            ticket = (
-                f"🔔 *¡NUEVO PEDIDO RECIBIDO!*\n\n"
-                f"👤 *Cliente:* {nom}\n"
-                f"📍 *Modo:* {ent}\n"
-                f"{'🏠 *Dirección:* ' + dir_cliente if ent == 'Delivery' else '🏢 *Retira en local*'}\n"
-                f"💳 *Pago:* {pago}\n"
-                f"--------------------------\n"
-                f"{resumen_texto}"
-                f"--------------------------\n"
-                f"💰 *TOTAL A COBRAR: ${total_total:,.0f}*"
-            )
-            enviar_telegram(ticket)
-            st.success("¡Pedido enviado con éxito! Revisá tu Telegram X.")
-            st.balloons()
-        else:
-            st.error("⚠️ Falta completar nombre o dirección.")
+        if st.button("🚀 CONFIRMAR PEDIDO Y ENVIAR", use_container_width=True):
+            if not nom:
+                st.error("⚠️ Por favor, ingresá tu nombre.")
+            elif ent == "Delivery" and not dir_cliente:
+                st.error("⚠️ Necesitamos tu dirección para el envío.")
+            else:
+                # Construcción del remito para vos
+                remito = (
+                    f"🔔 *¡NUEVO PEDIDO RECIBIDO!*\n\n"
+                    f"👤 *Cliente:* {nom}\n"
+                    f"🛵 *Tipo:* {ent}\n"
+                    f"{'🏠 *Dirección:* ' + dir_cliente if ent == 'Delivery' else '🏢 *Retira en local*'}\n"
+                    f"💳 *Pago:* {pago}\n"
+                    f"--------------------------\n"
+                    f"{texto_telegram}"
+                    f"--------------------------\n"
+                    f"💰 *TOTAL A COBRAR: ${total_final:,.0f}*"
+                )
+                
+                # Ejecutar envío
+                if enviar_telegram(remito):
+                    st.balloons()
+                    st.session_state['carrito'] = {} # Opcional: limpiar carrito
+                    st.info("¡Gracias! Tu pedido ya entró al sistema. Si tenés dudas, escribinos por WhatsApp.")
