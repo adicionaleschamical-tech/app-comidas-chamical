@@ -1,210 +1,143 @@
 import streamlit as st
 import pandas as pd
-import gspread
-from google.oauth2.service_account import Credentials
+import requests
 import urllib.parse
-import time
+import re
+from datetime import datetime
+from io import StringIO
 
-# --- CONFIGURACIÓN DE PÁGINA (Debe ser lo primero) ---
+# --- CONFIGURACIÓN ---
+ID_SHEET = "1WcVWos3p9NJKKEpY2L1-gmKhEkZJH1FL8Hy5bNqHyRA"
+
+# URLs CORRECTAS para descarga directa
+URL_PRODUCTOS = f"https://docs.google.com/spreadsheets/d/{ID_SHEET}/export?format=csv&gid=0"
+URL_CONFIG = f"https://docs.google.com/spreadsheets/d/{ID_SHEET}/export?format=csv&gid=612320365"
+
 st.set_page_config(page_title="Gestión de Pedidos", page_icon="🍟", layout="centered")
 
-# --- FUNCIÓN DE CONEXIÓN ROBUSTA ---
-def conectar_google():
-    scope = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
-    
-    if "gcp_service_account" not in st.secrets:
-        st.error("❌ ERROR: No se encontró la sección [gcp_service_account] en los Secrets de Streamlit.")
-        st.stop()
+# --- FUNCIONES ---
+def extraer_numero(precio_str):
+    numeros = re.findall(r'\d+', str(precio_str).replace(',', ''))
+    return float("".join(numeros)) if numeros else 0
 
+@st.cache_data(ttl=30)
+def cargar_datos():
+    """Carga los CSV directamente desde Google Sheets"""
     try:
-        # Extraer y limpiar la llave privada
-        info_claves = dict(st.secrets["gcp_service_account"])
-        # Corregimos los saltos de línea que suelen romperse al pegar
-        info_claves["private_key"] = info_claves["private_key"].replace("\\n", "\n")
+        # Descargar productos
+        resp_p = requests.get(URL_PRODUCTOS, timeout=10)
+        resp_p.raise_for_status()
+        df_prod = pd.read_csv(StringIO(resp_p.text))
+        df_prod.columns = [c.strip().upper() for c in df_prod.columns]
         
-        creds = Credentials.from_service_account_info(info_claves, scopes=scope)
-        cliente = gspread.authorize(creds)
+        # Descargar configuración
+        resp_c = requests.get(URL_CONFIG, timeout=10)
+        resp_c.raise_for_status()
+        df_conf = pd.read_csv(StringIO(resp_c.text))
         
-        # ID de tu Google Sheet
-        return cliente.open_by_key("1WcVWos3p9NJKKEpY2L1-gmKhEkZJH1FL8Hy5bNqHyRA")
+        # Convertir a diccionario
+        conf = {}
+        for _, row in df_conf.iterrows():
+            if len(row) >= 2:
+                conf[str(row.iloc[0]).strip()] = str(row.iloc[1]).strip()
+        
+        return df_prod, df_conf, conf
     
     except Exception as e:
-        st.error(f"⚠️ Error crítico al conectar con Google: {e}")
-        st.info("Revisá que el correo de la cuenta de servicio tenga permisos de EDITOR en el Excel.")
-        st.stop()
+        st.error(f"Error al cargar: {e}")
+        return pd.DataFrame(), pd.DataFrame(), {}
 
-# --- INICIALIZACIÓN DE DATOS ---
-try:
-    doc = conectar_google()
-    hoja_prod = doc.get_worksheet(0)
-    hoja_conf = doc.get_worksheet(1)
-except Exception as e:
-    st.error(f"No se pudieron cargar las pestañas del Excel: {e}")
+# --- INICIALIZAR SESIÓN ---
+if 'carrito' not in st.session_state:
+    st.session_state['carrito'] = {}
+
+# --- CARGAR DATOS ---
+df_prod, df_conf, conf = cargar_datos()
+
+if df_prod.empty:
     st.stop()
 
-def cargar_datos_vivos():
-    # Productos
-    data_p = hoja_prod.get_all_records()
-    df_p = pd.DataFrame(data_p)
-    df_p.columns = [c.strip().upper() for c in df_p.columns]
-    
-    # Configuración
-    data_c = hoja_conf.get_all_records()
-    df_c = pd.DataFrame(data_c)
-    conf_dict = {str(r.iloc[0]).strip(): str(r.iloc[1]).strip() for _, r in df_c.iterrows()}
-    
-    return df_p, df_c, conf_dict
+# --- DATOS DEL LOCAL ---
+nombre_local = conf.get("Nombre Negocio", "Mi Local")
+alias = conf.get("Alias", "No definido")
+telefono = conf.get("Telefono", "5493826000000")
+costo_delivery = extraer_numero(conf.get("Costo Delivery", "0"))
 
-df_prod, df_conf_raw, conf = cargar_datos_vivos()
+# --- VISTA PRINCIPAL ---
+st.title(f"🍟 {nombre_local}")
 
-# --- VARIABLES DINÁMICAS ---
-nombre_n = conf.get("Nombre Negocio", "Mi Local")
-alias_n = conf.get("Alias", "No definido")
-tel_n = conf.get("Telefono", "5493826000000")
-costo_d = conf.get("Costo Delivery", "0")
+# Mostrar productos
+df_disponibles = df_prod[df_prod['DISPONIBLE'].astype(str).str.upper() == "SI"]
 
-# --- ESTILOS CSS ---
-st.markdown("""
-    <style>
-    .stApp { background-color: #FFFFFF !important; }
-    .producto-caja { 
-        border: 1px solid #EEE; padding: 15px; border-radius: 15px; 
-        margin-bottom: 15px; background-color: #FDFDFD;
-        box-shadow: 0px 4px 6px rgba(0,0,0,0.05);
-    }
-    .precio-tag { color: #E63946; font-size: 24px; font-weight: bold; }
-    .ing-box { background: #FFF9C4; padding: 10px; border-radius: 8px; font-size: 14px; border-left: 5px solid #FBC02D; }
-    </style>
-    """, unsafe_allow_html=True)
-
-# --- MANEJO DE SESIÓN ---
-if 'rol' not in st.session_state: st.session_state['rol'] = 'cliente'
-if 'carrito' not in st.session_state: st.session_state['carrito'] = {}
-if 'sel_v' not in st.session_state: st.session_state['sel_v'] = {}
-
-# --- SIDEBAR (LOGIN) ---
-with st.sidebar:
-    st.header("⚙️ Panel de Gestión")
-    if st.session_state['rol'] == 'cliente':
-        with st.expander("🔐 Ingresar"):
-            u = st.text_input("Usuario/DNI")
-            p = st.text_input("Clave", type="password")
-            if st.button("Acceder"):
-                if u == conf.get("Admin_DNI") and p == conf.get("Admin_Pass"):
-                    st.session_state['rol'] = 'admin'
-                    st.rerun()
-                elif u == conf.get("User") and p == conf.get("User_Pass"):
-                    st.session_state['rol'] = 'usuario'
-                    st.rerun()
-                else: st.error("Datos incorrectos")
-    else:
-        st.success(f"Sesión: {st.session_state['rol'].upper()}")
-        if st.button("Cerrar Sesión"):
-            st.session_state['rol'] = 'cliente'
-            st.rerun()
-
-# --- LÓGICA DE VISTAS ---
-if st.session_state['rol'] in ['admin', 'usuario']:
-    st.title("🛠️ Administración")
-    t1, t2 = st.tabs(["🍔 Menú de Productos", "🏠 Datos del Local"])
-
-    with t1:
-        st.subheader("Edición de Menú")
-        if st.session_state['rol'] == 'admin':
-            edit_p = st.data_editor(df_prod, use_container_width=True, key="admin_p")
-        else:
-            cols = ["PRODUCTO", "VARIEDADES", "INGREDIENTES", "PRECIO", "DISPONIBLE"]
-            edit_p = st.data_editor(df_prod[cols], use_container_width=True, key="user_p")
-        
-        if st.button("💾 Guardar Menú"):
-            hoja_prod.update([df_prod.columns.values.tolist()] + edit_p.values.tolist())
-            st.success("¡Menú actualizado en la nube!")
-
-    with t2:
-        st.subheader("Configuración")
-        campos = ["Nombre Negocio", "Alias", "Telefono", "Costo Delivery"]
-        df_sub = df_conf_raw[df_conf_raw.iloc[:, 0].isin(campos)]
-        edit_c = st.data_editor(df_sub, use_container_width=True, key="conf_edit", hide_index=True)
-        
-        if st.button("💾 Guardar Alias y Datos"):
-            for _, fila in edit_c.iterrows():
-                celda = hoja_conf.find(str(fila.iloc[0]))
-                hoja_conf.update_cell(celda.row, 2, str(fila.iloc[1]))
-            st.success("✅ ¡Datos actualizados! Reiniciando...")
-            time.sleep(1)
-            st.rerun()
-
-# --- VISTA CLIENTE (PÚBLICA) ---
+if df_disponibles.empty:
+    st.warning("No hay productos disponibles")
 else:
-    st.markdown(f"<h1 style='text-align:center; color:#E63946;'>🍟 {nombre_n}</h1>", unsafe_allow_html=True)
+    for _, producto in df_disponibles.iterrows():
+        with st.container(border=True):
+            col1, col2 = st.columns([1, 2])
+            
+            with col1:
+                img = producto['IMAGEN'] if pd.notna(producto['IMAGEN']) else "https://via.placeholder.com/150"
+                st.image(img, use_container_width=True)
+            
+            with col2:
+                st.subheader(producto['PRODUCTO'])
+                
+                # Precio (sin variedades por simplicidad)
+                precio = extraer_numero(producto['PRECIO'])
+                st.metric("Precio", f"${precio:,.0f}")
+                
+                # Botón agregar
+                if st.button(f"➕ Agregar", key=f"add_{producto.name}"):
+                    nombre = producto['PRODUCTO']
+                    if nombre in st.session_state['carrito']:
+                        st.session_state['carrito'][nombre]['cant'] += 1
+                    else:
+                        st.session_state['carrito'][nombre] = {'precio': precio, 'cant': 1}
+                    st.toast(f"✅ {nombre} agregado", icon="🛒")
+
+# --- CARRITO ---
+if st.session_state['carrito']:
+    st.divider()
+    st.header("🛒 Tu Pedido")
     
-    if not df_prod.empty:
-        df_v = df_prod[df_prod['DISPONIBLE'].astype(str).str.upper() == "SI"]
-        cats = df_v['CATEGORIA'].unique()
-        tabs = st.tabs(list(cats))
-
-        for i, cat in enumerate(cats):
-            with tabs[i]:
-                items = df_v[df_v['CATEGORIA'] == cat]
-                for idx, row in items.iterrows():
-                    with st.container():
-                        st.markdown('<div class="producto-caja">', unsafe_allow_html=True)
-                        col1, col2 = st.columns([1, 1.5])
-                        
-                        with col1:
-                            img = row['IMAGEN'] if row['IMAGEN'] != "" else "https://via.placeholder.com/200"
-                            st.image(img, use_container_width=True)
-
-                        with col2:
-                            st.subheader(row['PRODUCTO'])
-                            # Manejo de Variedades
-                            variedades = str(row['VARIEDADES']).split(',') if row['VARIEDADES'] != "" else []
-                            if idx not in st.session_state['sel_v']: st.session_state['sel_v'][idx] = 0
-                            
-                            if variedades:
-                                sel = st.selectbox("Elegí tamaño/tipo:", variedades, key=f"sel_{idx}", 
-                                                   index=st.session_state['sel_v'][idx])
-                                st.session_state['sel_v'][idx] = variedades.index(sel)
-
-                            # Ingredientes y Precio
-                            p_idx = st.session_state['sel_v'][idx]
-                            if row['INGREDIENTES'] != "":
-                                ings = str(row['INGREDIENTES']).split(';')
-                                st.markdown(f'<div class="ing-box">{ings[p_idx] if p_idx < len(ings) else ings[0]}</div>', unsafe_allow_html=True)
-
-                            precios = str(row['PRECIO']).split(';')
-                            p_final = float("".join(filter(str.isdigit, precios[p_idx] if p_idx < len(precios) else precios[0])))
-                            
-                            st.markdown(f'<p class="precio-tag">${p_final:,.0f}</p>', unsafe_allow_html=True)
-                            if st.button("Agregar 🛒", key=f"btn_{idx}"):
-                                nom_full = f"{row['PRODUCTO']} ({variedades[p_idx]})" if variedades else row['PRODUCTO']
-                                if nom_full in st.session_state['carrito']: st.session_state['carrito'][nom_full]['cant'] += 1
-                                else: st.session_state['carrito'][nom_full] = {'precio': p_final, 'cant': 1}
-                                st.toast("¡Agregado!")
-                        st.markdown('</div>', unsafe_allow_html=True)
-
-    # --- CARRITO ---
-    if st.session_state['carrito']:
-        with st.sidebar:
-            st.markdown("### 🛒 Tu Pedido")
-            total = 0
-            resumen = ""
-            for it, d in list(st.session_state['carrito'].items()):
-                sub = d['precio'] * d['cant']
-                total += sub
-                st.write(f"**{d['cant']}x** {it}")
-                resumen += f"- {d['cant']}x {it}\n"
+    total = 0
+    for nombre, datos in st.session_state['carrito'].items():
+        subtotal = datos['precio'] * datos['cant']
+        total += subtotal
+        col1, col2, col3 = st.columns([3, 1, 1])
+        col1.write(f"**{nombre}**")
+        col2.write(f"${datos['precio']:,.0f}")
+        nueva_cant = col3.number_input("Cant", min_value=0, value=datos['cant'], key=f"cant_{nombre}", label_visibility="collapsed")
+        if nueva_cant != datos['cant']:
+            if nueva_cant == 0:
+                del st.session_state['carrito'][nombre]
+            else:
+                st.session_state['carrito'][nombre]['cant'] = nueva_cant
+            st.rerun()
+    
+    st.divider()
+    
+    nombre_cliente = st.text_input("👤 Tu nombre")
+    tipo_entrega = st.radio("Tipo de entrega", ["Retiro", "Delivery"], horizontal=True)
+    
+    costo_envio = costo_delivery if tipo_entrega == "Delivery" else 0
+    total_final = total + costo_envio
+    
+    st.metric("TOTAL", f"${total_final:,.0f}")
+    if costo_envio > 0:
+        st.caption(f"Incluye delivery: ${costo_envio:,.0f}")
+    
+    st.info(f"💳 Alias para pagar: **{alias}**")
+    
+    if st.button("📱 Enviar pedido por WhatsApp", type="primary", use_container_width=True):
+        if not nombre_cliente:
+            st.error("Ingresá tu nombre")
+        else:
+            mensaje = f"🔔 *NUEVO PEDIDO*\n👤 {nombre_cliente}\n📦 {tipo_entrega}\n---\n"
+            for nombre, datos in st.session_state['carrito'].items():
+                mensaje += f"• {datos['cant']}x {nombre} — ${datos['precio'] * datos['cant']:,.0f}\n"
+            mensaje += f"---\n💰 *TOTAL: ${total_final:,.0f}*"
             
-            st.divider()
-            nom = st.text_input("¿Tu nombre?")
-            envio = st.radio("Entrega:", ["Retiro", "Delivery"])
-            c_envio = int(costo_d) if envio == "Delivery" else 0
-            
-            st.markdown(f"#### Total: ${total + c_envio:,.0f}")
-            st.caption(f"Alias MP: {alias_n}")
-            
-            if st.button("🚀 Enviar a WhatsApp"):
-                if nom:
-                    msg = urllib.parse.quote(f"Hola! Soy {nom}. Pedido:\n{resumen}\nTotal: ${total+c_envio}")
-                    st.markdown(f'<meta http-equiv="refresh" content="0;URL=\'https://wa.me/{tel_n}?text={msg}\'">', unsafe_allow_html=True)
-                else: st.warning("Falta tu nombre")
+            whatsapp_url = f"https://wa.me/{telefono}?text={urllib.parse.quote(mensaje)}"
+            st.link_button("💬 Abrir WhatsApp para enviar", whatsapp_url, use_container_width=True)
