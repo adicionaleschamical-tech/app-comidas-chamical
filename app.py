@@ -12,15 +12,27 @@ TELEGRAM_TOKEN = "8793126374:AAG5zIBWrUOq50Ku0zjXEe8joD_JlcCDURI"
 TELEGRAM_CHAT_ID = "7860013984"
 URL_APPS_SCRIPT = "https://script.google.com/macros/s/AKfycbzl9dpOIAVs7U3sfiS8pJE__FqPUSj8rTAEPQeSJF6si6ADL8LK-SDdWD4KXrep5rlJPQ/exec"
 
+# --- PERSONALIZACIÓN DEL LOCAL ---
+NOMBRE_LOCAL = "TU NOMBRE AQUÍ"  # Ej: Lomitos Chamical
+LOGO_URL = "https://via.placeholder.com/150" # Reemplaza con el link de tu logo
+
 URL_PRODUCTOS = f"https://docs.google.com/spreadsheets/d/{ID_SHEET}/export?format=csv&gid=0"
 URL_PEDIDOS_BASE = f"https://docs.google.com/spreadsheets/d/{ID_SHEET}/export?format=csv&gid={GID_PEDIDOS}"
 
-st.set_page_config(page_title="Pedidos Chamical", page_icon="🍟", layout="centered")
+st.set_page_config(page_title=NOMBRE_LOCAL, page_icon="🍟", layout="centered")
 
 # --- 2. FUNCIONES ---
 
+def formatear_moneda(valor):
+    """Convierte números a formato $1.250"""
+    try:
+        return f"${int(valor):,}".replace(",", ".")
+    except:
+        return "$0"
+
 def limpiar_precio(valor):
     if pd.isna(valor): return 0
+    if isinstance(valor, (int, float)): return int(valor)
     solo_numeros = re.sub(r'[^\d]', '', str(valor))
     return int(solo_numeros) if solo_numeros else 0
 
@@ -51,10 +63,17 @@ def enviar_telegram(mensaje, dni):
 
 # --- 3. LÓGICA DE NAVEGACIÓN ---
 if 'vista' not in st.session_state: st.session_state.vista = 'inicio'
+if 'carrito' not in st.session_state: st.session_state.carrito = {}
+
+# --- ENCABEZADO COMÚN ---
+col_logo, col_titulo = st.columns([1, 3])
+with col_logo:
+    st.image(LOGO_URL, width=80)
+with col_titulo:
+    st.title(NOMBRE_LOCAL)
 
 # --- VISTA: INICIO ---
 if st.session_state.vista == 'inicio':
-    st.markdown("<h1 style='text-align: center;'>🍟 Pedidos Chamical</h1>", unsafe_allow_html=True)
     st.write("---")
     c1, c2 = st.columns(2)
     with c1:
@@ -72,83 +91,86 @@ if st.session_state.vista == 'pedir':
     if 'user_dni' not in st.session_state:
         with st.container(border=True):
             st.subheader("Tus Datos")
-            st.info("⚠️ Usaremos tu DNI para que consultes el estado de tu pedido.")
             nombre = st.text_input("Nombre y Apellido")
             dni = st.text_input("DNI (solo números)")
             if st.button("Ver Menú"):
                 if nombre and dni.isdigit():
-                    st.session_state.user_name = nombre
-                    st.session_state.user_dni = dni
-                    st.rerun()
-                else: st.error("Por favor, ingresá datos válidos.")
+                    st.session_state.user_name = nombre; st.session_state.user_dni = dni; st.rerun()
+                else: st.error("Ingresá datos válidos.")
         st.stop()
 
     df_p = cargar_productos()
-    if 'carrito' not in st.session_state: st.session_state.carrito = {}
-
+    
+    st.subheader("Menú")
     for idx, row in df_p.iterrows():
         if str(row.get('DISPONIBLE', '')).upper() == "SI":
             with st.container(border=True):
-                c1, c2 = st.columns([1, 2])
+                c1, c2, c3 = st.columns([1, 2, 1.5])
                 c1.image(row['IMAGEN'] if pd.notna(row['IMAGEN']) else "https://via.placeholder.com/150")
-                c2.subheader(row['PRODUCTO'])
-                c2.write(f"**Precio: ${row['PRECIO']}**")
-                if c2.button("➕ Agregar", key=f"a_{idx}"):
-                    st.session_state.carrito[row['PRODUCTO']] = st.session_state.carrito.get(row['PRODUCTO'], 0) + 1
-                    st.toast(f"Agregado: {row['PRODUCTO']}")
+                c2.markdown(f"**{row['PRODUCTO']}**")
+                precio_num = limpiar_precio(row['PRECIO'])
+                c2.write(formatear_moneda(precio_num))
+                
+                # SELECTOR + / -
+                prod_name = row['PRODUCTO']
+                cant_actual = st.session_state.carrito.get(prod_name, 0)
+                
+                col_btn1, col_cant, col_btn2 = c3.columns([1, 1, 1])
+                if col_btn1.button("➖", key=f"min_{idx}"):
+                    if cant_actual > 0:
+                        st.session_state.carrito[prod_name] -= 1
+                        if st.session_state.carrito[prod_name] == 0: del st.session_state.carrito[prod_name]
+                        st.rerun()
+                col_cant.markdown(f"<h3 style='text-align:center; margin:0;'>{cant_actual}</h3>", unsafe_allow_html=True)
+                if col_btn2.button("➕", key=f"plus_{idx}"):
+                    st.session_state.carrito[prod_name] = cant_actual + 1
+                    st.rerun()
 
+    # --- SECCIÓN CARRITO ---
     if st.session_state.carrito:
-        st.divider()
-        st.header("🛒 Tu Pedido")
-        total, detalle = 0, ""
+        st.markdown("---")
+        st.header("🛒 Tu Carrito")
+        total_pedido = 0
+        detalle_texto = ""
+        
         for p, q in st.session_state.carrito.items():
-            pre = limpiar_precio(df_p[df_p['PRODUCTO']==p]['PRECIO'].iloc[0])
-            total += (pre * q)
-            st.write(f"**{q}x** {p} (${pre*q:,.0f})")
-            detalle += f"- {q}x {p}\n"
+            precio_unit = limpiar_precio(df_p[df_p['PRODUCTO']==p]['PRECIO'].iloc[0])
+            subtotal = precio_unit * q
+            total_pedido += subtotal
+            detalle_texto += f"- {q}x {p}\n"
+            
+            # Vista del ítem en el carrito
+            c_art, c_sub = st.columns([3, 1])
+            c_art.write(f"**{q}x** {p}")
+            c_sub.write(formatear_moneda(subtotal))
         
-        ent = st.radio("¿Cómo recibís?", ["Retiro en Local", "Delivery"])
-        dir_e = st.text_input("Dirección") if ent == "Delivery" else "Retiro"
+        st.markdown(f"### TOTAL: {formatear_moneda(total_pedido)}")
         
-        if st.button("🚀 CONFIRMAR PEDIDO", type="primary", use_container_width=True):
-            params = {"accion":"nuevo", "tel":st.session_state.user_dni, "nombre":st.session_state.user_name, "detalle":detalle, "total":total, "dir":dir_e}
+        ent = st.radio("Entrega:", ["Retiro en Local", "Delivery"])
+        dir_e = st.text_input("Dirección de envío:") if ent == "Delivery" else "Retiro en local"
+        
+        if st.button("🚀 ENVIAR PEDIDO", type="primary", use_container_width=True):
+            params = {"accion":"nuevo", "tel":st.session_state.user_dni, "nombre":st.session_state.user_name, "detalle":detalle_texto, "total":total_pedido, "dir":dir_e}
             requests.get(URL_APPS_SCRIPT, params=params)
-            msg = f"🔔 *NUEVO PEDIDO*\n👤 {st.session_state.user_name}\n🪪 DNI: {st.session_state.user_dni}\n📍 {dir_e}\n{detalle}\n💰 *TOTAL: ${total:,.0f}*"
+            msg = f"🔔 *NUEVO PEDIDO*\n👤 {st.session_state.user_name}\n🪪 DNI: {st.session_state.user_dni}\n📍 {dir_e}\n{detalle_texto}\n💰 *TOTAL: {formatear_moneda(total_pedido)}*"
             enviar_telegram(msg, st.session_state.user_dni)
             st.session_state.carrito = {}; st.session_state.vista = 'consultar'; st.rerun()
 
 # --- VISTA: CONSULTAR ESTADO ---
 if st.session_state.vista == 'consultar':
-    if st.button("⬅ Volver al inicio"): st.session_state.vista = 'inicio'; st.rerun()
+    if st.button("⬅ Menú Principal"): st.session_state.vista = 'inicio'; st.rerun()
+    st.subheader("Estado de tu Pedido")
+    dni_input = st.text_input("DNI:", value=st.session_state.get('user_dni', ""))
     
-    st.title("Seguimiento de Pedido")
-    dni_input = st.text_input("Ingresá tu DNI:", value=st.session_state.get('user_dni', ""))
-    
-    if st.button("🔍 CONSULTAR", type="primary", use_container_width=True):
-        if dni_input:
-            df_peds = obtener_pedidos_frescos()
-            if not df_peds.empty:
-                # Limpieza de DNI
-                df_peds['DNI_CLEAN'] = df_peds['DNI'].astype(str).str.replace(r'\.0$', '', regex=True)
-                df_peds['DNI_CLEAN'] = df_peds['DNI_CLEAN'].str.replace(r'[.,\s]', '', regex=True).str.strip()
-                dni_busqueda = re.sub(r'[^\d]', '', str(dni_input)).strip()
-                
-                match = df_peds[df_peds['DNI_CLEAN'] == dni_busqueda]
-                
-                if not match.empty:
-                    res = match.iloc[-1]
-                    estado = str(res.get('ESTADO', 'RECIBIDO')).upper()
-                    nombre = res.get('NOMBRE', 'Cliente')
-                    
-                    st.markdown(f"""
-                        <div style="padding:20px; border-radius:15px; border:3px solid #E63946; text-align:center; background-color: #ffffff; margin-top:20px;">
-                            <h3 style="color: #333;">Hola {nombre}</h3>
-                            <p style="color: #666;">Tu último pedido está:</p>
-                            <h1 style="color:#E63946; font-size:45px; margin: 0;">{estado}</h1>
-                        </div>
-                    """, unsafe_allow_html=True)
-                    
-                    if estado not in ["ENTREGADO", "FINALIZADO"]:
-                        time.sleep(20); st.rerun()
-                else:
-                    st.warning("No encontramos pedidos pendientes para este DNI.")
+    if st.button("🔍 CONSULTAR"):
+        df_peds = obtener_pedidos_frescos()
+        if not df_peds.empty:
+            df_peds['DNI_C'] = df_peds['DNI'].astype(str).str.replace(r'\.0$', '', regex=True).str.replace(r'[.,\s]', '', regex=True).str.strip()
+            dni_b = re.sub(r'[^\d]', '', str(dni_input)).strip()
+            match = df_peds[df_peds['DNI_C'] == dni_b]
+            if not match.empty:
+                res = match.iloc[-1]
+                st.info(f"Hola **{res['NOMBRE']}**, tu pedido está: **{res['ESTADO'].upper()}**")
+                if res['ESTADO'].upper() not in ["ENTREGADO", "FINALIZADO"]:
+                    time.sleep(15); st.rerun()
+            else: st.warning("No hay pedidos activos para ese DNI.")
