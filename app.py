@@ -1,5 +1,5 @@
 import streamlit as st
-import pandas as pd
+import pd
 import requests
 import time
 import re
@@ -67,7 +67,7 @@ elif st.session_state.vista == 'rastreo':
         df_peds['DNI_L'] = df_peds['DNI'].astype(str).str.replace(r'[^\d]', '', regex=True)
         res = df_peds[df_peds['DNI_L'] == dni_l].tail(1)
         if not res.empty:
-            st.success(f"Hola {res.iloc[0]['NOMBRE']}, tu pedido está: **{res.iloc[0]['ESTADO']}**")
+            st.info(f"Hola {res.iloc[0]['NOMBRE']}, el estado de tu pedido es: **{res.iloc[0]['ESTADO']}**")
         else: st.warning("No se encontró el DNI.")
 
 elif st.session_state.vista == 'pedir':
@@ -81,7 +81,6 @@ elif st.session_state.vista == 'pedir':
                     st.session_state.user_name = n; st.session_state.user_dni = d; st.rerun()
         st.stop()
 
-    # --- LISTA DE PRODUCTOS ---
     df_p = pd.read_csv(f"{URL_PRODUCTOS}&cb={int(time.time())}")
     df_p.columns = [c.strip().upper() for c in df_p.columns]
 
@@ -107,74 +106,62 @@ elif st.session_state.vista == 'pedir':
                         item_id = f"{row['PRODUCTO']} ({nom_v})"
                         cant = st.session_state.carrito.get(item_id, {}).get('cant', 0)
                         
-                        c1, c2, c3 = st.columns([1,1,1])
-                        if c1.button("➖", key=f"m_{item_id}") and cant > 0:
+                        col1, col2, col3 = st.columns([1,1,1])
+                        if col1.button("➖", key=f"m_{item_id}") and cant > 0:
                             st.session_state.carrito[item_id]['cant'] -= 1
                             if st.session_state.carrito[item_id]['cant'] == 0: del st.session_state.carrito[item_id]
                             st.rerun()
-                        c2.markdown(f"<h3 style='text-align:center;'>{cant}</h3>", unsafe_allow_html=True)
-                        if c3.button("➕", key=f"p_{item_id}"):
+                        col2.markdown(f"<h3 style='text-align:center;'>{cant}</h3>", unsafe_allow_html=True)
+                        if col3.button("➕", key=f"p_{item_id}"):
                             st.session_state.carrito[item_id] = {'cant': cant + 1, 'precio': pre_v}
                             st.rerun()
 
-    # --- CARRITO DETALLADO ---
     if st.session_state.carrito:
         st.markdown("---")
-        st.header("🛒 Resumen de tu Pedido")
-        
+        st.header("🛒 Resumen")
         total_productos = 0
         detalle_para_envio = ""
-        
-        # Tabla de resumen
         for item, datos in st.session_state.carrito.items():
             subtotal = datos['cant'] * datos['precio']
             total_productos += subtotal
-            detalle_para_envio += f"• {datos['cant']}x {item}\n"
-            st.write(f"**{datos['cant']}x** {item} → {formatear_moneda(subtotal)}")
+            detalle_para_envio += f"{datos['cant']}x {item}, "
+            st.write(f"**{datos['cant']}x** {item}")
         
-        st.write("---")
-        metodo_entrega = st.radio("¿Cómo recibís tu pedido?", ["Retiro en Local", "Delivery"])
-        
-        direccion = "Retiro en Local"
-        cargo_envio = 0
-        
-        if metodo_entrega == "Delivery":
-            cargo_envio = costo_delivery
-            direccion = st.text_input("🏠 Ingresá tu dirección de entrega:", placeholder="Calle, Barrio, n° de casa...")
-            st.warning(f"Costo de envío: {formatear_moneda(cargo_envio)}")
+        metodo = st.radio("Entrega:", ["Retiro", "Delivery"])
+        dir_envio = "Retiro en Local"
+        if metodo == "Delivery":
+            dir_envio = st.text_input("🏠 Dirección:")
+            total_productos += costo_delivery
 
-        total_final = total_productos + cargo_envio
-        st.markdown(f"## TOTAL A PAGAR: {formatear_moneda(total_final)}")
-        
-        if st.button("🚀 CONFIRMAR Y ENVIAR PEDIDO", use_container_width=True, type="primary"):
-            if metodo_entrega == "Delivery" and (not direccion or direccion == "Retiro en Local"):
-                st.error("Por favor, ingresá una dirección para el envío.")
+        if st.button("🚀 ENVIAR PEDIDO", use_container_width=True, type="primary"):
+            if metodo == "Delivery" and not dir_envio:
+                st.error("Ingresá la dirección")
             else:
-                # 1. Registro en Google Sheets
-                params = {
-                    "accion": "nuevo",
-                    "tel": st.session_state.user_dni,
-                    "nombre": st.session_state.user_name,
-                    "detalle": detalle_para_envio,
-                    "total": total_final,
-                    "dir": direccion
-                }
-                requests.get(URL_APPS_SCRIPT, params=params)
+                # 1. GENERAR ID ÚNICO PARA EL PEDIDO (Usamos timestamp)
+                id_pedido = str(int(time.time()))[-6:]
                 
-                # 2. Notificación Telegram
-                msg = (f"🔔 *NUEVO PEDIDO*\n\n"
-                       f"👤 *Cliente:* {st.session_state.user_name}\n"
-                       f"🆔 *DNI:* {st.session_state.user_dni}\n"
-                       f"📍 *Dirección:* {direccion}\n"
-                       f"📦 *Método:* {metodo_entrega}\n\n"
-                       f"*Detalle:*\n{detalle_para_envio}\n"
-                       f"💰 *TOTAL: {formatear_moneda(total_final)}*")
+                # 2. ENVIAR A GOOGLE SHEETS
+                params = {"accion": "nuevo", "tel": st.session_state.user_dni, "nombre": st.session_state.user_name, 
+                          "detalle": detalle_para_envio, "total": total_productos, "dir": dir_envio}
+                requests.get(URL_APPS_SCRIPT, params=params)
+
+                # 3. ENVIAR A TELEGRAM CON BOTONES
+                import json
+                # Botones que llaman al Apps Script para cambiar el estado en el Excel
+                keyboard = {
+                    "inline_keyboard": [[
+                        {"text": "✅ Aceptar", "callback_data": f"estado_Preparando_{st.session_state.user_dni}"},
+                        {"text": "🛵 En Camino", "callback_data": f"estado_Enviado_{st.session_state.user_dni}"},
+                        {"text": "🏁 Listo", "callback_data": f"estado_Finalizado_{st.session_state.user_dni}"}
+                    ]]
+                }
+                
+                msg = f"🔔 *PEDIDO #{id_pedido}*\n👤 {st.session_state.user_name}\n🆔 DNI: {st.session_state.user_dni}\n📍 {dir_envio}\n\n*Detalle:* {detalle_para_envio}\n💰 *TOTAL: {formatear_moneda(total_productos)}*"
                 
                 requests.post(f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage", 
-                              data={"chat_id": TELEGRAM_CHAT_ID, "text": msg, "parse_mode": "Markdown"})
+                              data={"chat_id": TELEGRAM_CHAT_ID, "text": msg, "parse_mode": "Markdown", "reply_markup": json.dumps(keyboard)})
                 
-                st.success("¡Pedido enviado correctamente! Ya podés rastrearlo con tu DNI.")
+                st.success("¡Pedido enviado!")
                 st.session_state.carrito = {}
-                time.sleep(3)
-                st.session_state.vista = 'inicio'
-                st.rerun()
+                time.sleep(2)
+                st.session_state.vista = 'inicio'; st.rerun()
