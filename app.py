@@ -8,7 +8,7 @@ from io import StringIO
 # --- 1. CONFIGURACIÓN DE ENLACES ---
 ID_SHEET = "1WcVWos3p9NJKKEpY2L1-gmKhEkZJH1FL8Hy5bNqHyRA"
 GID_PEDIDOS = "1395505058"
-GID_CONFIG = "PONE_AQUI_EL_GID_DE_CONFIG" # Buscá el gid en la pestaña CONFIG
+GID_CONFIG = "612320365"  # <--- Tu GID de la pestaña CONFIG
 
 TELEGRAM_TOKEN = "8793126374:AAG5zIBWrUOq50Ku0zjXEe8joD_JlcCDURI"
 TELEGRAM_CHAT_ID = "7860013984"
@@ -20,19 +20,29 @@ URL_PEDIDOS_BASE = f"https://docs.google.com/spreadsheets/d/{ID_SHEET}/export?fo
 
 # --- 2. FUNCIONES NÚCLEO ---
 
-@st.cache_data(ttl=60)
+@st.cache_data(ttl=10)
 def cargar_config():
     try:
         resp = requests.get(URL_CONFIG, timeout=10)
-        df = pd.read_csv(StringIO(resp.text))
-        # Crea un diccionario simple de usar: config['Alias']
-        return pd.Series(df.VALOR.values, index=df.PARAMETRO).to_dict()
-    except:
+        # Cargamos sin encabezados para evitar errores de nombres de columna
+        df = pd.read_csv(StringIO(resp.text), header=None)
+        
+        # Convertimos la Columna 0 (A) en llaves y la Columna 1 (B) en valores
+        config_dict = {}
+        for _, row in df.iterrows():
+            param = str(row[0]).strip()
+            valor = str(row[1]).strip()
+            config_dict[param] = valor
+        return config_dict
+    except Exception as e:
         return {}
 
 def formatear_moneda(valor):
-    try: return f"${int(valor):,}".replace(",", ".")
-    except: return "$0"
+    try:
+        v = int(float(str(valor).replace('.', '').replace(',', '')))
+        return f"${v:,}".replace(",", ".")
+    except:
+        return f"${valor}"
 
 def limpiar_precio(valor):
     if pd.isna(valor): return 0
@@ -40,82 +50,132 @@ def limpiar_precio(valor):
     solo_numeros = re.sub(r'[^\d]', '', str(valor))
     return int(solo_numeros) if solo_numeros else 0
 
-def obtener_pedidos_frescos():
-    try:
-        url = f"{URL_PEDIDOS_BASE}&cache_buster={int(time.time())}"
-        df = pd.read_csv(url)
-        df.columns = [c.strip().upper() for c in df.columns]
-        return df
-    except: return pd.DataFrame()
-
-# --- 3. INICIO DE APP ---
+# --- 3. INICIO Y CARGA ---
 conf = cargar_config()
-st.set_page_config(page_title=conf.get('NOMBRE_LOCAL', 'Lomitos'), layout="centered")
+
+# Definimos variables con los nombres EXACTOS que pusiste en el Sheet
+nombre_local = conf.get('Nombre_Local', 'Cargando...')
+logo_url = conf.get('Logo_URL', '')
+direccion = conf.get('Direccion Local', '')
+
+st.set_page_config(page_title=nombre_local, page_icon="🍟", layout="centered")
 
 if 'vista' not in st.session_state: st.session_state.vista = 'inicio'
 if 'carrito' not in st.session_state: st.session_state.carrito = {}
-if 'rol' not in st.session_state: st.session_state.rol = 'cliente'
 
-# --- ENCABEZADO ---
-st.title(conf.get('NOMBRE_LOCAL', 'Mi Local'))
-st.caption(f"📍 {conf.get('Direccion Local', '')}")
+# --- 4. ENCABEZADO ---
+col_logo, col_tit = st.columns([1, 4])
+with col_logo:
+    if logo_url:
+        st.image(logo_url, width=100)
+with col_tit:
+    st.title(nombre_local)
+    if direccion:
+        st.caption(f"📍 {direccion}")
 
-# --- 4. LÓGICA DE VISTAS ---
+st.write("---")
 
-# VISTA: LOGIN ADMIN/USUARIO
-if st.session_state.vista == 'login':
-    if st.button("⬅ Volver"): st.session_state.vista = 'inicio'; st.rerun()
-    with st.form("login_form"):
-        u_dni = st.text_input("DNI de Usuario")
-        u_pass = st.text_input("Contraseña", type="password")
-        if st.form_submit_button("Entrar"):
-            if u_dni == str(conf.get('Admin_DNI')) and u_pass == str(conf.get('Admin_Pass')):
-                st.session_state.rol = 'admin'; st.session_state.vista = 'admin_panel'; st.rerun()
-            elif u_dni == str(conf.get('User')) and u_pass == str(conf.get('User_Pass')):
-                st.session_state.rol = 'user'; st.session_state.vista = 'admin_panel'; st.rerun()
-            else: st.error("Credenciales incorrectas")
+# --- 5. VISTAS ---
 
-# VISTA: PANEL DE ADMINISTRACIÓN
-if st.session_state.vista == 'admin_panel':
-    st.header("🎛️ Panel de Gestión")
-    if st.button("Cerrar Sesión"): st.session_state.vista = 'inicio'; st.session_state.rol = 'cliente'; st.rerun()
-    
-    df_peds = obtener_pedidos_frescos()
-    if not df_peds.empty:
-        st.write("### Pedidos Recientes")
-        st.dataframe(df_peds.tail(20))
-        # Aquí podrías agregar botones para cambiar estados si lo deseas
-    else: st.info("No hay pedidos registrados aún.")
+# MODO MANTENIMIENTO
+if conf.get('MODO_MANTENIMIENTO') == "SI":
+    st.warning("⚠️ El local se encuentra cerrado por mantenimiento. ¡Volvemos pronto!")
+    if st.button("🔑 Acceso Personal"):
+        st.session_state.vista = 'login'; st.rerun()
+    st.stop()
 
 # VISTA: INICIO
 if st.session_state.vista == 'inicio':
-    st.write("---")
-    col1, col2 = st.columns(2)
-    with col1:
+    c1, c2 = st.columns(2)
+    with c1:
         if st.button("🍔 HACER PEDIDO", use_container_width=True, type="primary"):
             st.session_state.vista = 'pedir'; st.rerun()
-    with col2:
+    with c2:
         if st.button("📦 MI PEDIDO", use_container_width=True):
             st.session_state.vista = 'consultar'; st.rerun()
-    
     st.write("---")
-    if st.button("🔑 Acceso Personal"): st.session_state.vista = 'login'; st.rerun()
+    if st.button("🔑 Acceso Personal"):
+        st.session_state.vista = 'login'; st.rerun()
 
-# VISTA: PEDIR (CON COSTO DE DELIVERY)
+# VISTA: LOGIN
+if st.session_state.vista == 'login':
+    if st.button("⬅ Volver"): st.session_state.vista = 'inicio'; st.rerun()
+    st.subheader("Ingreso de Personal")
+    u_dni = st.text_input("DNI")
+    u_pass = st.text_input("Clave", type="password")
+    if st.button("Entrar"):
+        if u_dni == conf.get('Admin_DNI') and u_pass == conf.get('Admin_Pass'):
+            st.session_state.rol = 'admin'; st.session_state.vista = 'admin_panel'; st.rerun()
+        else:
+            st.error("Credenciales incorrectas")
+
+# VISTA: PEDIR
 if st.session_state.vista == 'pedir':
-    if st.button("⬅ Menú"): st.session_state.vista = 'inicio'; st.rerun()
+    if st.button("⬅ Volver"): st.session_state.vista = 'inicio'; st.rerun()
     
-    # ... (Carga de productos igual que antes) ...
-    # Al momento de pagar:
-    costo_del = limpiar_precio(conf.get('Costo Delivery', 0))
-    
+    if 'user_dni' not in st.session_state:
+        with st.container(border=True):
+            st.subheader("Identificación")
+            n = st.text_input("Nombre")
+            d = st.text_input("DNI")
+            if st.button("Ver Menú"):
+                if n and d:
+                    st.session_state.user_name = n; st.session_state.user_dni = d; st.rerun()
+        st.stop()
+
+    # Carga de productos
+    df_prod = pd.read_csv(URL_PRODUCTOS)
+    df_prod.columns = [c.strip().upper() for c in df_prod.columns]
+
+    for idx, row in df_prod.iterrows():
+        if str(row.get('DISPONIBLE', '')).upper() == "SI":
+            with st.container(border=True):
+                c1, c2, c3 = st.columns([1, 2, 1.5])
+                c1.image(row['IMAGEN'] if pd.notna(row['IMAGEN']) else "https://via.placeholder.com/150")
+                c2.markdown(f"**{row['PRODUCTO']}**")
+                p_unit = limpiar_precio(row['PRECIO'])
+                c2.write(formatear_moneda(p_unit))
+                
+                p_name = row['PRODUCTO']
+                cant = st.session_state.carrito.get(p_name, 0)
+                
+                b1, b_txt, b2 = c3.columns([1, 1, 1])
+                if b1.button("➖", key=f"m_{idx}"):
+                    if cant > 0:
+                        st.session_state.carrito[p_name] -= 1
+                        if st.session_state.carrito[p_name] == 0: del st.session_state.carrito[p_name]
+                        st.rerun()
+                b_txt.markdown(f"<h3 style='text-align:center; margin:0;'>{cant}</h3>", unsafe_allow_html=True)
+                if b2.button("➕", key=f"p_{idx}"):
+                    st.session_state.carrito[p_name] = cant + 1
+                    st.rerun()
+
     if st.session_state.carrito:
-        # Lógica de carrito...
+        st.write("---")
+        st.header("🛒 Resumen")
+        total_acum = 0
+        detalle = ""
+        for p, q in st.session_state.carrito.items():
+            pre = limpiar_precio(df_prod[df_prod['PRODUCTO']==p]['PRECIO'].iloc[0])
+            sub = pre * q
+            total_acum += sub
+            detalle += f"- {q}x {p}\n"
+            st.write(f"{q}x {p} ({formatear_moneda(sub)})")
+        
         metodo = st.radio("Entrega:", ["Retiro", "Delivery"])
-        total_final = total_p + (costo_del if metodo == "Delivery" else 0)
+        envio = limpiar_precio(conf.get('Costo Delivery', 0)) if metodo == "Delivery" else 0
         
-        if metodo == "Delivery":
-            st.write(f"Costo Delivery: {formatear_moneda(costo_del)}")
+        total_f = total_acum + envio
+        if envio > 0: st.write(f"Costo Delivery: {formatear_moneda(envio)}")
         
-        st.subheader(f"Total a Pagar: {formatear_moneda(total_final)}")
-        st.info(f"Alias para transferencia: **{conf.get('Alias', 'No definido')}**")
+        st.markdown(f"## TOTAL: {formatear_moneda(total_f)}")
+        st.info(f"💰 Alias: {conf.get('Alias')}")
+        
+        dire = st.text_input("Dirección:") if metodo == "Delivery" else "Retiro"
+        
+        if st.button("🚀 ENVIAR PEDIDO", type="primary", use_container_width=True):
+            params = {"accion":"nuevo", "tel":st.session_state.user_dni, "nombre":st.session_state.user_name, "detalle":detalle, "total":total_f, "dir":dire}
+            requests.get(URL_APPS_SCRIPT, params=params)
+            msg = f"🔔 *NUEVO PEDIDO*\n👤 {st.session_state.user_name}\n📍 {dire}\n{detalle}\n💰 TOTAL: {formatear_moneda(total_f)}"
+            requests.post(f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage", data={"chat_id": TELEGRAM_CHAT_ID, "text": msg, "parse_mode": "Markdown"})
+            st.session_state.carrito = {}; st.session_state.vista = 'consultar'; st.rerun()
