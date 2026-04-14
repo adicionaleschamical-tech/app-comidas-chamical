@@ -75,27 +75,23 @@ elif st.session_state.vista == 'pedir':
     
     if 'user_dni' not in st.session_state:
         with st.container(border=True):
-            n = st.text_input("Nombre completo"); d = st.text_input("DNI")
+            n = st.text_input("Nombre completo"); d = st.text_input("DNI (solo números)")
             if st.button("Ingresar"):
                 if n and d.isdigit():
                     st.session_state.user_name = n; st.session_state.user_dni = d; st.rerun()
         st.stop()
 
-    # --- PRODUCTOS ---
+    # --- LISTA DE PRODUCTOS ---
     df_p = pd.read_csv(f"{URL_PRODUCTOS}&cb={int(time.time())}")
     df_p.columns = [c.strip().upper() for c in df_p.columns]
 
     for _, row in df_p.iterrows():
         if str(row.get('DISPONIBLE', '')).upper() == "SI":
             with st.container(border=True):
-                # 1. Foto del Producto (Bien visible)
                 img_url = row['IMAGEN'] if pd.notna(row['IMAGEN']) else "https://via.placeholder.com/400x200?text=Sin+Imagen"
                 st.image(img_url, use_container_width=True)
-                
-                # 2. Nombre del Producto
                 st.subheader(row['PRODUCTO'])
                 
-                # 3. Variedades
                 v_noms = str(row['VARIEDADES']).split(';')
                 v_ings = str(row['INGREDIENTES']).split(';')
                 v_pres = str(row['PRECIO']).split(';')
@@ -121,27 +117,64 @@ elif st.session_state.vista == 'pedir':
                             st.session_state.carrito[item_id] = {'cant': cant + 1, 'precio': pre_v}
                             st.rerun()
 
-    # --- FINALIZAR COMPRA ---
+    # --- CARRITO DETALLADO ---
     if st.session_state.carrito:
+        st.markdown("---")
+        st.header("🛒 Resumen de tu Pedido")
+        
+        total_productos = 0
+        detalle_para_envio = ""
+        
+        # Tabla de resumen
+        for item, datos in st.session_state.carrito.items():
+            subtotal = datos['cant'] * datos['precio']
+            total_productos += subtotal
+            detalle_para_envio += f"• {datos['cant']}x {item}\n"
+            st.write(f"**{datos['cant']}x** {item} → {formatear_moneda(subtotal)}")
+        
         st.write("---")
-        total_p = sum(v['cant'] * v['precio'] for v in st.session_state.carrito.values())
-        st.header(f"🛒 Total: {formatear_moneda(total_p)}")
+        metodo_entrega = st.radio("¿Cómo recibís tu pedido?", ["Retiro en Local", "Delivery"])
         
-        envio = st.radio("Entrega:", ["Retiro", "Delivery"])
-        final = total_p + (costo_delivery if envio == "Delivery" else 0)
+        direccion = "Retiro en Local"
+        cargo_envio = 0
         
-        if st.button("🚀 ENVIAR PEDIDO", use_container_width=True, type="primary"):
-            detalle_final = "\n".join([f"• {v['cant']}x {k}" for k, v in st.session_state.carrito.items()])
-            
-            # Enviar a Google (para rastreo)
-            params = {"accion":"nuevo", "tel":st.session_state.user_dni, "nombre":st.session_state.user_name, "detalle":detalle_final, "total":final, "dir":envio}
-            requests.get(URL_APPS_SCRIPT, params=params)
-            
-            # Notificación Telegram
-            msg = f"🍔 *NUEVO PEDIDO*\n\n👤 {st.session_state.user_name}\n🆔 DNI: {st.session_state.user_dni}\n🛵 {envio}\n\n*Pedido:*\n{detalle_final}\n\n💰 *TOTAL: {formatear_moneda(final)}*"
-            requests.post(f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage", data={"chat_id": TELEGRAM_CHAT_ID, "text": msg, "parse_mode": "Markdown"})
-            
-            st.success("¡Pedido enviado!")
-            st.session_state.carrito = {}
-            st.session_state.vista = 'inicio'
-            st.rerun()
+        if metodo_entrega == "Delivery":
+            cargo_envio = costo_delivery
+            direccion = st.text_input("🏠 Ingresá tu dirección de entrega:", placeholder="Calle, Barrio, n° de casa...")
+            st.warning(f"Costo de envío: {formatear_moneda(cargo_envio)}")
+
+        total_final = total_productos + cargo_envio
+        st.markdown(f"## TOTAL A PAGAR: {formatear_moneda(total_final)}")
+        
+        if st.button("🚀 CONFIRMAR Y ENVIAR PEDIDO", use_container_width=True, type="primary"):
+            if metodo_entrega == "Delivery" and (not direccion or direccion == "Retiro en Local"):
+                st.error("Por favor, ingresá una dirección para el envío.")
+            else:
+                # 1. Registro en Google Sheets
+                params = {
+                    "accion": "nuevo",
+                    "tel": st.session_state.user_dni,
+                    "nombre": st.session_state.user_name,
+                    "detalle": detalle_para_envio,
+                    "total": total_final,
+                    "dir": direccion
+                }
+                requests.get(URL_APPS_SCRIPT, params=params)
+                
+                # 2. Notificación Telegram
+                msg = (f"🔔 *NUEVO PEDIDO*\n\n"
+                       f"👤 *Cliente:* {st.session_state.user_name}\n"
+                       f"🆔 *DNI:* {st.session_state.user_dni}\n"
+                       f"📍 *Dirección:* {direccion}\n"
+                       f"📦 *Método:* {metodo_entrega}\n\n"
+                       f"*Detalle:*\n{detalle_para_envio}\n"
+                       f"💰 *TOTAL: {formatear_moneda(total_final)}*")
+                
+                requests.post(f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage", 
+                              data={"chat_id": TELEGRAM_CHAT_ID, "text": msg, "parse_mode": "Markdown"})
+                
+                st.success("¡Pedido enviado correctamente! Ya podés rastrearlo con tu DNI.")
+                st.session_state.carrito = {}
+                time.sleep(3)
+                st.session_state.vista = 'inicio'
+                st.rerun()
