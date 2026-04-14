@@ -22,6 +22,33 @@ TELEGRAM_CHAT_ID = "7860013984"
 # --- 2. FUNCIONES DE PROCESAMIENTO ---
 
 @st.cache_data(ttl=5)
+def cargar_config():
+    try:
+        # Forzamos refresco de caché de Google
+        url_fresca = f"{URL_CONFIG}&cb={int(time.time())}"
+        resp = requests.get(url_fresca, timeout=10)
+        resp.encoding = 'utf-8'
+        
+        # Leemos el CSV
+        df = pd.read_csv(StringIO(resp.text), header=None)
+        
+        # SEGURIDAD: Verificamos que el DataFrame tenga al menos 2 columnas
+        if df.shape[1] < 2:
+            st.error("⚠️ Error en la pestaña CONFIG: Se esperaba al menos 2 columnas (Parámetro y Valor).")
+            return {}
+
+        config_dict = {}
+        for _, row in df.iterrows():
+            # Solo procesamos si la fila tiene al menos 2 celdas con datos
+            if len(row) >= 2 and pd.notna(row[0]) and pd.notna(row[1]):
+                clave = str(row[0]).strip()
+                valor = str(row[1]).strip()
+                config_dict[clave] = valor
+        return config_dict
+    except Exception as e:
+        st.error(f"Error cargando configuración: {e}")
+        return {}
+
 def cargar_datos(url):
     try:
         resp = requests.get(f"{url}&cb={int(time.time())}", timeout=10)
@@ -29,14 +56,9 @@ def cargar_datos(url):
         return pd.read_csv(StringIO(resp.text))
     except: return pd.DataFrame()
 
-def cargar_config():
-    df = cargar_datos(URL_CONFIG)
-    if not df.empty:
-        return {str(row[0]).strip(): str(row[1]).strip() for _, row in df.iterrows() if pd.notna(row[0])}
-    return {}
-
 def limpiar_precio(texto):
     if pd.isna(texto) or str(texto).strip() == "": return 0
+    # Eliminamos todo lo que no sea número
     num = re.sub(r'[^\d]', '', str(texto))
     return int(num) if num else 0
 
@@ -45,8 +67,11 @@ def formatear_moneda(valor):
 
 # --- 3. INICIALIZACIÓN ---
 conf = cargar_config()
+
+# Valores por defecto por si falla la carga
 nombre_local = conf.get('Nombre_Local', 'Lomitos El Caniche')
 costo_delivery = limpiar_precio(conf.get('Costo Delivery', 0))
+direccion_local = conf.get('Direccion Local', '')
 
 st.set_page_config(page_title=nombre_local, page_icon="🍔")
 
@@ -56,6 +81,7 @@ if 'carrito' not in st.session_state: st.session_state.carrito = {}
 # --- 4. INTERFAZ ---
 
 st.title(f"🍔 {nombre_local}")
+if direccion_local: st.caption(f"📍 {direccion_local}")
 st.write("---")
 
 # VISTA: INICIO
@@ -77,6 +103,7 @@ elif st.session_state.vista == 'rastreo':
         if not df_peds.empty:
             df_peds.columns = [c.strip().upper() for c in df_peds.columns]
             dni_busq = re.sub(r'[^\d]', '', str(dni_input))
+            # Limpieza de columna DNI
             df_peds['DNI_L'] = df_peds['DNI'].astype(str).str.replace(r'\.0$', '', regex=True).str.replace(r'[^\d]', '', regex=True)
             
             res = df_peds[df_peds['DNI_L'] == dni_busq].tail(1)
@@ -110,13 +137,14 @@ elif st.session_state.vista == 'pedir':
                     
                     with col2:
                         st.subheader(row['PRODUCTO'])
-                        # SEPARACIÓN POR PUNTO Y COMA
+                        # Procesar listas separadas por punto y coma
                         vars = str(row['VARIEDADES']).split(';')
-                        ings = str(row['INGREDIENTES']).split(';')
                         pres = str(row['PRECIO']).split(';')
+                        ings = str(row['INGREDIENTES']).split(';')
 
                         for i in range(len(vars)):
                             nombre_v = vars[i].strip()
+                            # Asignamos precio individual o 0 si no existe
                             precio_v = limpiar_precio(pres[i]) if i < len(pres) else 0
                             ingred_v = ings[i].strip() if i < len(ings) else ""
                             
@@ -146,11 +174,15 @@ elif st.session_state.vista == 'pedir':
         st.markdown(f"### TOTAL: {formatear_moneda(final)}")
         if st.button("🚀 ENVIAR PEDIDO", type="primary", use_container_width=True):
             detalle = "\n".join([f"- {d['cant']}x {k}" for k, d in st.session_state.carrito.items()])
-            # Envíos
-            params = {"accion":"nuevo", "tel":st.session_state.user_dni, "nombre":st.session_state.user_name, "detalle":detalle, "total":final, "dir":metodo}
-            requests.get(URL_APPS_SCRIPT, params=params)
-            requests.post(f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage", data={"chat_id": TELEGRAM_CHAT_ID, "text": f"🔔 NUEVO: {st.session_state.user_name}\n{detalle}\n💰 {formatear_moneda(final)}", "parse_mode": "Markdown"})
             
-            st.session_state.carrito = {}
-            st.session_state.vista = 'rastreo'
-            st.rerun()
+            # Apps Script y Telegram
+            try:
+                params = {"accion":"nuevo", "tel":st.session_state.user_dni, "nombre":st.session_state.user_name, "detalle":detalle, "total":final, "dir":metodo}
+                requests.get(URL_APPS_SCRIPT, params=params)
+                requests.post(f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage", data={"chat_id": TELEGRAM_CHAT_ID, "text": f"🔔 NUEVO: {st.session_state.user_name}\n{detalle}\n💰 {formatear_moneda(final)}", "parse_mode": "Markdown"})
+                
+                st.session_state.carrito = {}
+                st.session_state.vista = 'rastreo'
+                st.rerun()
+            except:
+                st.error("Error al enviar pedido. Intentá de nuevo.")
