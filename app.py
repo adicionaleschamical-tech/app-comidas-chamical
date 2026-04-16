@@ -109,59 +109,6 @@ def cargar_productos():
     except:
         return pd.DataFrame()
 
-# ==================== FUNCIONES DE TELEGRAM ====================
-def actualizar_estado_pedido(dni, nuevo_estado):
-    """Actualiza el estado del pedido en Google Sheets"""
-    try:
-        # Llamar al Apps Script para actualizar el estado
-        params = {
-            "accion": "actualizar_estado",
-            "dni": dni,
-            "estado": nuevo_estado
-        }
-        response = requests.get(URL_APPS_SCRIPT, params=params, timeout=10)
-        return True
-    except:
-        return False
-
-def procesar_actualizaciones_telegram():
-    """Procesa las respuestas de los botones de Telegram"""
-    try:
-        url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/getUpdates"
-        response = requests.get(url, params={"timeout": 30}, timeout=35)
-        updates = response.json()
-        
-        if updates.get('ok') and updates.get('result'):
-            for update in updates['result']:
-                if 'callback_query' in update:
-                    callback_data = update['callback_query']['data']
-                    message_id = update['callback_query']['message']['message_id']
-                    
-                    # Parsear callback_data: formato "est_ESTADO_DNI"
-                    partes = callback_data.split('_')
-                    if len(partes) >= 3:
-                        nuevo_estado = partes[1]
-                        dni = partes[2]
-                        
-                        # Actualizar estado en Google Sheets
-                        if actualizar_estado_pedido(dni, nuevo_estado):
-                            # Responder al callback
-                            answer_url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/answerCallbackQuery"
-                            requests.post(answer_url, data={
-                                "callback_query_id": update['callback_query']['id'],
-                                "text": f"✅ Pedido actualizado a: {nuevo_estado}"
-                            })
-                            
-                            # Editar mensaje original para mostrar que ya se procesó
-                            edit_url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/editMessageText"
-                            requests.post(edit_url, data={
-                                "chat_id": TELEGRAM_CHAT_ID,
-                                "message_id": message_id,
-                                "text": update['callback_query']['message']['text'] + f"\n\n✅ Estado actualizado: {nuevo_estado}"
-                            })
-    except Exception as e:
-        logger.error(f"Error procesando actualizaciones: {e}")
-
 # ==================== PEDIDO MANAGER ====================
 class PedidoManager:
     def __init__(self):
@@ -177,8 +124,7 @@ class PedidoManager:
                 "nombre": nombre,
                 "detalle": detalle,
                 "total": total,
-                "dir": direccion,
-                "estado": "Pendiente"
+                "dir": direccion
             }
             response = requests.get(self.url_apps_script, params=params, timeout=10)
             return True
@@ -187,7 +133,6 @@ class PedidoManager:
     
     def enviar_notificacion(self, nombre, dni, direccion, detalle, total, formatear_func):
         try:
-            # Botones interactivos
             keyboard = {
                 "inline_keyboard": [
                     [
@@ -255,10 +200,6 @@ def apply_custom_theme():
             font-size: 12px;
             margin-top: 40px;
         }}
-        .stExpander {{
-            background-color: white;
-            border-radius: 12px;
-        }}
     </style>
     """
     st.markdown(custom_css, unsafe_allow_html=True)
@@ -294,10 +235,6 @@ def mostrar_productos():
             with col2:
                 nombre_producto = str(row.get('producto', 'Producto'))
                 st.subheader(nombre_producto)
-                
-                variedades = row.get('variedades', '')
-                if pd.notna(variedades) and str(variedades).strip():
-                    st.caption(f"🎯 {variedades}")
                 
                 precio = limpiar_precio(row.get('precio', '0'))
                 st.markdown(f"### {formatear_moneda(precio)}")
@@ -463,12 +400,9 @@ def panel_admin():
     st.title(f"👑 Panel de Administrador - {conf_actual['nombre_local']}")
     st.success("✅ Has iniciado sesión como ADMINISTRADOR")
     
-    # Procesar actualizaciones de Telegram
-    procesar_actualizaciones_telegram()
-    
     st.markdown("---")
     
-    tabs = st.tabs(["📊 Dashboard", "📋 Pedidos", "⚙️ Configuración", "🤖 Telegram"])
+    tabs = st.tabs(["📊 Dashboard", "📋 Pedidos", "⚙️ Configuración", "ℹ️ Ayuda"])
     
     with tabs[0]:
         st.subheader("Estadísticas del negocio")
@@ -486,17 +420,6 @@ def panel_admin():
             df_pedidos = pd.read_csv(f"{URL_PEDIDOS_BASE}&cb={int(time.time())}")
             if not df_pedidos.empty:
                 st.dataframe(df_pedidos, use_container_width=True)
-                
-                # Botones para actualizar estado manualmente
-                st.subheader("Actualizar estado manualmente")
-                pedidos_list = df_pedidos['DNI'].tolist() if 'DNI' in df_pedidos.columns else []
-                if pedidos_list:
-                    dni_seleccionado = st.selectbox("Seleccionar pedido por DNI", pedidos_list)
-                    nuevo_estado = st.selectbox("Nuevo estado", ["Pendiente", "Preparando", "Enviado", "Listo", "Cancelado"])
-                    if st.button("Actualizar estado"):
-                        if actualizar_estado_pedido(dni_seleccionado, nuevo_estado):
-                            st.success(f"✅ Pedido actualizado a {nuevo_estado}")
-                            st.rerun()
             else:
                 st.info("No hay pedidos registrados")
         except:
@@ -510,15 +433,19 @@ def panel_admin():
         st.info("📝 Para modificar la configuración, edita tu Google Sheets")
     
     with tabs[3]:
-        st.subheader("Bot de Telegram")
-        st.write("Cuando llega un pedido, el bot envía un mensaje con botones:")
         st.markdown("""
-        - ✅ **Aceptar** → Cambia estado a "Preparando"
-        - 🛵 **Enviar** → Cambia estado a "Enviado"  
-        - 🏁 **Completar** → Cambia estado a "Listo"
-        - ❌ **Cancelar** → Cambia estado a "Cancelado"
+        ### 📋 Ayuda rápida
+        
+        **Estados del pedido:**
+        - ⏳ Pendiente: Pedido recibido, esperando confirmación
+        - 👨‍🍳 Preparando: El local está preparando tu pedido
+        - 🛵 Enviado: El pedido está en camino
+        - ✅ Listo: Pedido completado
+        
+        **Botones de Telegram:**
+        - Los botones actualizan automáticamente el estado
+        - El cliente puede ver el estado actualizado desde el rastreo
         """)
-        st.info("Los botones actualizan automáticamente el estado en Google Sheets")
     
     st.markdown("---")
     
@@ -534,6 +461,12 @@ def vista_inicio():
             st.session_state.vista = 'pedir'
             st.rerun()
     with col2:
+        if st.button("🔍 RASTREAR MI PEDIDO", use_container_width=True):
+            st.session_state.vista = 'rastreo'
+            st.rerun()
+    
+    col3, col4, col5 = st.columns([1, 2, 1])
+    with col4:
         if st.button("⚙️ ADMIN", use_container_width=True):
             st.session_state.vista = 'admin'
             st.rerun()
@@ -543,6 +476,81 @@ def vista_inicio():
         st.write(f"**📅 Horario:** {conf.get('horario', 'No especificado')}")
         st.write(f"**📱 Teléfono:** {conf.get('telefono', 'No especificado')}")
         st.write(f"**🚚 Costo de envío:** {formatear_moneda(costo_delivery)}")
+
+def vista_rastreo():
+    """Pantalla de rastreo de pedidos - CORREGIDA"""
+    st.subheader("🔍 Estado de tu pedido")
+    
+    if st.button("⬅ Volver al inicio", use_container_width=True):
+        st.session_state.vista = 'inicio'
+        st.rerun()
+    
+    st.markdown("---")
+    
+    dni_input = st.text_input("Ingresá tu DNI (sin puntos)", placeholder="Ej: 30588807")
+    
+    if st.button("Buscar mi pedido", type="primary", use_container_width=True):
+        if not dni_input:
+            st.warning("⚠️ Por favor ingresá tu DNI")
+            return
+        
+        dni_limpio = re.sub(r'[^\d]', '', str(dni_input))
+        
+        if len(dni_limpio) not in [7, 8]:
+            st.error("❌ El DNI debe tener 7 u 8 dígitos")
+            return
+        
+        try:
+            with st.spinner("🔍 Buscando tu pedido..."):
+                df_peds = pd.read_csv(f"{URL_PEDIDOS_BASE}&cb={int(time.time())}")
+                df_peds.columns = [c.strip().upper() for c in df_peds.columns]
+                
+                if 'DNI' not in df_peds.columns:
+                    st.error("Error: La hoja de pedidos no tiene columna DNI")
+                    return
+                
+                df_peds['DNI_LIMPIO'] = df_peds['DNI'].astype(str).str.replace(r'[^\d]', '', regex=True)
+                pedidos_usuario = df_peds[df_peds['DNI_LIMPIO'] == dni_limpio].sort_values(by=['FECHA'], ascending=False)
+                
+                if pedidos_usuario.empty:
+                    st.warning("❌ No encontramos pedidos con ese DNI")
+                else:
+                    pedido = pedidos_usuario.iloc[0]
+                    
+                    estado = pedido.get('ESTADO', 'Pendiente')
+                    estado_emoji = {
+                        'Pendiente': '⏳ Pendiente',
+                        'Preparando': '👨‍🍳 En preparación',
+                        'Enviado': '🛵 En camino',
+                        'Listo': '✅ Listo para retirar',
+                        'Cancelado': '❌ Cancelado'
+                    }.get(estado, f'📦 {estado}')
+                    
+                    st.success(f"### 🎯 Hola {pedido['NOMBRE']}!")
+                    st.markdown(f"### Estado de tu pedido: **{estado_emoji}**")
+                    
+                    estados_progreso = ['Pendiente', 'Preparando', 'Enviado', 'Listo']
+                    if estado in estados_progreso:
+                        progreso = estados_progreso.index(estado) + 1
+                        st.progress(progreso / len(estados_progreso))
+                    
+                    with st.expander("📋 Ver detalles del pedido", expanded=True):
+                        col1, col2 = st.columns(2)
+                        with col1:
+                            st.write("**📅 Fecha:**", pedido.get('FECHA', 'No registrada'))
+                            st.write("**📍 Dirección:**", pedido.get('DIRECCION', 'Retiro en local'))
+                        with col2:
+                            st.write("**💰 Total:**", formatear_moneda(limpiar_precio(pedido.get('TOTAL', 0))))
+                            st.write("**🆔 DNI:**", pedido.get('DNI', ''))
+                        
+                        st.markdown("---")
+                        st.write("**🍔 Detalle del pedido:**")
+                        detalle = pedido.get('DETALLE', '')
+                        for linea in str(detalle).split('\\n'):
+                            if linea.strip():
+                                st.write(f"  {linea}")
+        except Exception as e:
+            st.error(f"❌ Error al consultar el estado: {e}")
 
 def vista_pedir():
     if st.button("⬅ Volver al inicio"):
@@ -588,6 +596,8 @@ def main():
     
     if st.session_state.vista == 'inicio':
         vista_inicio()
+    elif st.session_state.vista == 'rastreo':
+        vista_rastreo()
     elif st.session_state.vista == 'pedir':
         vista_pedir()
     elif st.session_state.vista == 'admin':
