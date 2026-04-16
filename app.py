@@ -7,47 +7,27 @@ from io import StringIO
 import logging
 from datetime import datetime
 
-# Importar módulos
 from config import (
     cargar_config, limpiar_precio, formatear_moneda,
-    URL_PRODUCTOS, URL_PEDIDOS_BASE
+    cargar_productos, URL_PEDIDOS_BASE
 )
-from theme_manager import apply_custom_theme, mostrar_header
+from theme_manager import apply_custom_theme, mostrar_header, mostrar_productos
 from pedido_manager import PedidoManager
 
-# Configurar logging
-logging.basicConfig(level=logging.INFO)
+# Configuración
 logger = logging.getLogger(__name__)
-
-# --- INICIALIZACIÓN ---
 apply_custom_theme()
 pedido_manager = PedidoManager()
 conf = cargar_config()
-costo_delivery = limpiar_precio(conf.get('Costo Delivery', 0))
+costo_delivery = conf.get('costo_delivery', 0)
 
 # Inicializar session state
 if 'vista' not in st.session_state:
     st.session_state.vista = 'inicio'
 if 'carrito' not in st.session_state:
     st.session_state.carrito = {}
-if 'carrito_backup' not in st.session_state:
-    st.session_state.carrito_backup = {}
-
-# --- FUNCIONES AUXILIARES ---
-@st.cache_data(ttl=60)
-def cargar_productos():
-    """Carga productos con caché y manejo de errores"""
-    try:
-        with st.spinner("Cargando menú..."):
-            resp_p = requests.get(f"{URL_PRODUCTOS}&cb={int(time.time())}", timeout=10)
-            resp_p.raise_for_status()
-            df_p = pd.read_csv(StringIO(resp_p.text))
-            df_p.columns = [c.strip().upper() for c in df_p.columns]
-            return df_p
-    except Exception as e:
-        logger.error(f"Error cargando productos: {e}")
-        st.error("Error al cargar el menú. Por favor recargá la página.")
-        return pd.DataFrame()
+if 'admin_logged' not in st.session_state:
+    st.session_state.admin_logged = False
 
 def validar_dni(dni):
     """Valida formato de DNI"""
@@ -55,68 +35,6 @@ def validar_dni(dni):
     if len(dni_str) not in [7, 8]:
         return False, "El DNI debe tener 7 u 8 dígitos"
     return True, dni_str
-
-def guardar_carrito_backup():
-    """Guarda backup del carrito"""
-    st.session_state.carrito_backup = st.session_state.carrito.copy()
-
-def mostrar_productos():
-    """Muestra el grid de productos"""
-    df_p = cargar_productos()
-    if df_p.empty:
-        return
-    
-    for _, row in df_p.iterrows():
-        if str(row.get('DISPONIBLE', '')).upper() == "SI":
-            with st.container(border=True):
-                # Imagen
-                img_url = row['IMAGEN'] if pd.notna(row['IMAGEN']) else None
-                if img_url and img_url.startswith('http'):
-                    st.image(img_url, use_container_width=True)
-                
-                # Nombre del producto
-                st.subheader(row['PRODUCTO'])
-                
-                # Variedades
-                v_noms = str(row['VARIEDADES']).split(';')
-                v_ings = str(row['INGREDIENTES']).split(';') if pd.notna(row['INGREDIENTES']) else []
-                v_pres = str(row['PRECIO']).split(';')
-                
-                if len(v_noms) > 1:
-                    tabs = st.tabs([v.strip() for v in v_noms])
-                    for i, tab in enumerate(tabs):
-                        with tab:
-                            _mostrar_variedad(row, i, v_noms, v_ings, v_pres)
-                else:
-                    _mostrar_variedad(row, 0, v_noms, v_ings, v_pres)
-
-def _mostrar_variedad(row, idx, v_noms, v_ings, v_pres):
-    """Muestra una variedad del producto"""
-    nom_v = v_noms[idx].strip() if idx < len(v_noms) else "Única"
-    pre_v = limpiar_precio(v_pres[idx]) if idx < len(v_pres) else 0
-    
-    if idx < len(v_ings) and v_ings[idx].strip():
-        st.info(f"✨ {v_ings[idx].strip()}")
-    
-    st.markdown(f"### {formatear_moneda(pre_v)}")
-    
-    item_id = f"{row['PRODUCTO']} ({nom_v})"
-    cant = st.session_state.carrito.get(item_id, {}).get('cant', 0)
-    
-    col1, col2, col3 = st.columns([1, 1, 1])
-    if col1.button("➖", key=f"m_{item_id}"):
-        if cant > 0:
-            st.session_state.carrito[item_id]['cant'] -= 1
-            if st.session_state.carrito[item_id]['cant'] == 0:
-                del st.session_state.carrito[item_id]
-            st.rerun()
-    
-    col2.markdown(f"<h3 style='text-align:center;'>{cant}</h3>", unsafe_allow_html=True)
-    
-    if col3.button("➕", key=f"p_{item_id}"):
-        st.session_state.carrito[item_id] = {'cant': cant + 1, 'precio': pre_v}
-        guardar_carrito_backup()
-        st.rerun()
 
 def mostrar_carrito():
     """Muestra el resumen del carrito"""
@@ -133,7 +51,12 @@ def mostrar_carrito():
         subtotal = datos['cant'] * datos['precio']
         total_productos += subtotal
         detalle_para_envio += f"• {datos['cant']}x {item}\n"
-        st.write(f"**{datos['cant']}x** {item} → {formatear_moneda(subtotal)}")
+        
+        col1, col2 = st.columns([3, 1])
+        with col1:
+            st.write(f"**{datos['cant']}x** {item}")
+        with col2:
+            st.write(f"{formatear_moneda(subtotal)}")
     
     metodo_entrega = st.radio("¿Cómo recibís?", ["Retiro en Local", "Delivery"])
     direccion = "Retiro en Local"
@@ -141,47 +64,134 @@ def mostrar_carrito():
     
     if metodo_entrega == "Delivery":
         cargo_envio = costo_delivery
-        direccion = st.text_input("🏠 Dirección de entrega:")
+        direccion = st.text_input("🏠 Dirección de entrega:", placeholder="Calle y número")
         if direccion:
             st.info(f"Costo de envío: {formatear_moneda(cargo_envio)}")
     
     total_final = total_productos + cargo_envio
     st.markdown(f"## TOTAL A PAGAR: {formatear_moneda(total_final)}")
     
-    if st.button("🚀 CONFIRMAR Y ENVIAR", use_container_width=True, type="primary"):
-        if metodo_entrega == "Delivery" and (not direccion or direccion == "Retiro en Local"):
-            st.error("Por favor, ingresá una dirección válida.")
-            return
-        
-        # Registrar pedido
-        if pedido_manager.registrar_pedido(
-            st.session_state.user_dni,
-            st.session_state.user_name,
-            detalle_para_envio,
-            total_final,
-            direccion
-        ):
-            # Enviar notificación
-            pedido_manager.enviar_notificacion(
-                st.session_state.user_name,
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("🗑 Vaciar carrito", use_container_width=True):
+            st.session_state.carrito = {}
+            st.rerun()
+    with col2:
+        if st.button("🚀 CONFIRMAR Y ENVIAR", use_container_width=True, type="primary"):
+            if metodo_entrega == "Delivery" and (not direccion or direccion == "Retiro en Local"):
+                st.error("Por favor, ingresá una dirección válida")
+                return
+            
+            if pedido_manager.registrar_pedido(
                 st.session_state.user_dni,
-                direccion,
+                st.session_state.user_name,
                 detalle_para_envio,
                 total_final,
-                formatear_moneda
-            )
-            
-            st.success("¡Pedido enviado correctamente!")
-            st.balloons()
-            st.session_state.carrito = {}
-            time.sleep(2)
-            st.session_state.vista = 'inicio'
-            st.rerun()
+                direccion
+            ):
+                pedido_manager.enviar_notificacion(
+                    st.session_state.user_name,
+                    st.session_state.user_dni,
+                    direccion,
+                    detalle_para_envio,
+                    total_final,
+                    formatear_moneda
+                )
+                
+                st.success("¡Pedido enviado correctamente!")
+                st.balloons()
+                st.session_state.carrito = {}
+                time.sleep(2)
+                st.session_state.vista = 'inicio'
+                st.rerun()
 
-# --- VISTAS PRINCIPALES ---
+def login_admin():
+    """Pantalla de login para administradores"""
+    st.subheader("🔐 Panel de Administración")
+    
+    col1, col2 = st.columns([1, 2])
+    with col1:
+        st.image("https://cdn-icons-png.flaticon.com/512/3135/3135715.png", width=150)
+    
+    with col2:
+        user = st.text_input("Usuario")
+        password = st.text_input("Contraseña", type="password")
+        
+        if st.button("Ingresar", type="primary"):
+            if user == conf.get('user') and password == conf.get('user_pass'):
+                st.session_state.admin_logged = True
+                st.rerun()
+            else:
+                st.error("Usuario o contraseña incorrectos")
+
+def panel_admin():
+    """Panel de administración"""
+    if not st.session_state.get('admin_logged', False):
+        login_admin()
+        return
+    
+    st.title(f"📊 Panel de {conf['nombre_local']}")
+    
+    tabs = st.tabs(["📈 Dashboard", "📋 Pedidos", "⚙️ Configuración", "ℹ️ Ayuda"])
+    
+    with tabs[0]:
+        st.subheader("Estadísticas del día")
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("Pedidos hoy", "0", "+0")
+        with col2:
+            st.metric("Ingresos hoy", "$0", "+0")
+        with col3:
+            st.metric("Clientes", "0", "+0")
+        st.info("📊 Las estadísticas se actualizarán automáticamente cuando tengas pedidos")
+    
+    with tabs[1]:
+        st.subheader("Pedidos")
+        try:
+            df_pedidos = pd.read_csv(f"{URL_PEDIDOS_BASE}&cb={int(time.time())}")
+            if not df_pedidos.empty:
+                st.dataframe(df_pedidos, use_container_width=True)
+            else:
+                st.info("No hay pedidos registrados aún")
+        except:
+            st.info("No se pudieron cargar los pedidos")
+    
+    with tabs[2]:
+        st.subheader("Configuración del negocio")
+        st.info("📝 Edita estos valores directamente en tu Google Sheets")
+        
+        for key, value in conf.items():
+            if key not in ['admin_pass_hash', 'user_pass']:
+                st.text_input(key.replace('_', ' ').title(), value=value, disabled=True)
+    
+    with tabs[3]:
+        st.subheader("Ayuda rápida")
+        st.markdown("""
+        ### 📋 Instrucciones:
+        1. **Productos**: Edita la hoja "PRODUCTOS" en Google Sheets
+        2. **Configuración**: Edita la hoja "CONFIGURACIÓN"
+        3. **Pedidos**: Se ven automáticamente en la pestaña Pedidos
+        
+        ### 🎨 Personalización:
+        - Cambia `Tema_Primario` y `Tema_Secundario` para cambiar colores
+        - Agrega un `Logo_URL` para tu logo
+        - Modifica `Horario` y `Telefono` para mostrar información de contacto
+        """)
+    
+    if st.button("🚪 Cerrar sesión"):
+        st.session_state.admin_logged = False
+        st.rerun()
+
 def vista_inicio():
     """Pantalla de inicio"""
     mostrar_header()
+    
+    # Botón de admin oculto (click en el icono)
+    col1, col2, col3 = st.columns([1, 2, 1])
+    with col3:
+        if st.button("⚙️", help="Panel de administración"):
+            st.session_state.vista = 'admin'
+            st.rerun()
     
     col1, col2 = st.columns(2)
     with col1:
@@ -193,11 +203,15 @@ def vista_inicio():
             st.session_state.vista = 'rastreo'
             st.rerun()
     
-    # Mostrar información del local
     with st.expander("ℹ️ Información del local"):
-        st.write(f"**📅 Horario:** {conf.get('horario', 'Consultar')}")
+        if conf.get('direccion_local'):
+            st.write(f"**📍 Dirección:** {conf['direccion_local']}")
+        if conf.get('horario'):
+            st.write(f"**📅 Horario:** {conf['horario']}")
+        if conf.get('telefono'):
+            st.write(f"**📱 Teléfono:** {conf['telefono']}")
         if conf.get('whatsapp'):
-            st.write(f"**📱 WhatsApp:** {conf['whatsapp']}")
+            st.write(f"**💬 WhatsApp:** {conf['whatsapp']}")
         st.write(f"**🚚 Delivery:** {formatear_moneda(costo_delivery)}")
 
 def vista_rastreo():
@@ -225,9 +239,8 @@ def vista_rastreo():
                 
                 if not res.empty:
                     pedido = res.iloc[0]
-                    estado = pedido['ESTADO']
+                    estado = pedido.get('ESTADO', 'Pendiente')
                     
-                    # Emojis según estado
                     estado_emoji = {
                         'Pendiente': '⏳',
                         'Preparando': '👨‍🍳',
@@ -238,22 +251,19 @@ def vista_rastreo():
                     
                     st.success(f"Hola {pedido['NOMBRE']}, tu pedido está: **{estado_emoji} {estado}**")
                     
-                    # Mostrar más detalles
-                    with st.expander("Ver detalles del pedido"):
+                    with st.expander("Ver detalles"):
                         st.write(f"**📍 Dirección:** {pedido.get('DIRECCION', 'Retiro en local')}")
                         st.write(f"**💰 Total:** {formatear_moneda(limpiar_precio(pedido.get('TOTAL', 0)))}")
                 else:
                     st.warning("No encontramos pedidos con ese DNI")
         except Exception as e:
-            logger.error(f"Error en rastreo: {e}")
-            st.error("Error al consultar el estado del pedido")
+            st.error("Error al consultar el estado")
 
 def vista_pedir():
     """Pantalla principal de pedidos"""
-    # Header con botón volver
     col1, col2 = st.columns([1, 4])
     with col1:
-        if st.button("⬅", help="Volver al inicio"):
+        if st.button("⬅", help="Volver"):
             st.session_state.vista = 'inicio'
             st.rerun()
     with col2:
@@ -287,31 +297,36 @@ def vista_pedir():
     # Mostrar carrito
     mostrar_carrito()
     
-    # Footer personalizado
+    # Footer
     st.markdown("---")
     st.markdown(
         f"<div class='footer'>"
-        f"🍔 {conf['Nombre_Local']} - Pedidos online<br>"
+        f"{conf['icono']} {conf['nombre_local']} - Pedidos online<br>"
         f"© {datetime.now().year} - Todos los derechos reservados"
         f"</div>",
         unsafe_allow_html=True
     )
 
-# --- MAIN ---
 def main():
     """Punto de entrada principal"""
-    try:
-        if st.session_state.vista == 'inicio':
-            vista_inicio()
-        elif st.session_state.vista == 'rastreo':
-            vista_rastreo()
-        elif st.session_state.vista == 'pedir':
-            vista_pedir()
-    except Exception as e:
-        logger.error(f"Error en main: {e}")
-        st.error("Ocurrió un error inesperado. Por favor recargá la página.")
-        if st.button("Recargar"):
-            st.rerun()
+    conf = cargar_config()
+    
+    # Verificar modo mantenimiento
+    if conf.get('modo_mantenimiento', False):
+        st.warning("🔧 El local está en mantenimiento. Volvemos pronto.")
+        st.image("https://cdn-icons-png.flaticon.com/512/7486/7486899.png", width=200)
+        st.info(f"📞 Contacto: {conf.get('telefono', 'Consultar')}")
+        return
+    
+    # Navegación
+    if st.session_state.vista == 'inicio':
+        vista_inicio()
+    elif st.session_state.vista == 'rastreo':
+        vista_rastreo()
+    elif st.session_state.vista == 'pedir':
+        vista_pedir()
+    elif st.session_state.vista == 'admin':
+        panel_admin()
 
 if __name__ == "__main__":
     main()
