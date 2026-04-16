@@ -30,11 +30,11 @@ class PedidoManager:
             return True
         except Exception as e:
             logger.error(f"Error registrando pedido: {e}")
-            st.error("Error al registrar el pedido. Por favor intentá nuevamente.")
+            st.error("Error al registrar el pedido")
             return False
     
     def enviar_notificacion(self, nombre, dni, direccion, detalle, total, formatear_moneda_func):
-        """Envía notificación a Telegram con botones interactivos"""
+        """Envía notificación a Telegram"""
         try:
             keyboard = {
                 "inline_keyboard": [
@@ -70,9 +70,9 @@ class PedidoManager:
                 timeout=10
             )
             response.raise_for_status()
-            logger.info(f"Notificación enviada a Telegram - DNI: {dni}")
+            logger.info(f"Notificación enviada a Telegram")
             return True
         except Exception as e:
-            logger.error(f"Error enviando notificación: {e}")
-            st.error("Error al enviar notificación al local")
+            logger.error(f"Error en notificación: {e}")
+            st.error("Error al enviar notificación")
             return False
