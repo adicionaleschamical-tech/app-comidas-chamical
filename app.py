@@ -6,6 +6,7 @@ import re
 from io import StringIO
 import logging
 from datetime import datetime
+import json
 
 # ==================== CONFIGURACIÓN ====================
 logging.basicConfig(level=logging.INFO)
@@ -34,20 +35,13 @@ URL_APPS_SCRIPT = "https://script.google.com/macros/s/AKfycbzl9dpOIAVs7U3sfiS8pJ
 
 # ==================== FUNCIONES DE APOYO ====================
 def limpiar_precio(texto):
-    """Limpia formato de precio - convierte a número entero"""
     if pd.isna(texto) or str(texto).strip() == "":
         return 0
-    # Convertir a string y limpiar
-    texto_str = str(texto).strip()
-    # Eliminar todo lo que no sea número
-    numeros = re.findall(r'\d+', texto_str)
-    if numeros:
-        # Tomar el primer grupo de números encontrado
-        return int(numeros[0])
-    return 0
+    texto_limpio = str(texto).replace('.', '').replace(',', '')
+    numeros = re.findall(r'\d+', texto_limpio)
+    return int(''.join(numeros)) if numeros else 0
 
 def formatear_moneda(valor):
-    """Formatea moneda al estilo argentino"""
     try:
         return f"$ {int(valor):,}".replace(",", ".")
     except:
@@ -115,6 +109,59 @@ def cargar_productos():
     except:
         return pd.DataFrame()
 
+# ==================== FUNCIONES DE TELEGRAM ====================
+def actualizar_estado_pedido(dni, nuevo_estado):
+    """Actualiza el estado del pedido en Google Sheets"""
+    try:
+        # Llamar al Apps Script para actualizar el estado
+        params = {
+            "accion": "actualizar_estado",
+            "dni": dni,
+            "estado": nuevo_estado
+        }
+        response = requests.get(URL_APPS_SCRIPT, params=params, timeout=10)
+        return True
+    except:
+        return False
+
+def procesar_actualizaciones_telegram():
+    """Procesa las respuestas de los botones de Telegram"""
+    try:
+        url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/getUpdates"
+        response = requests.get(url, params={"timeout": 30}, timeout=35)
+        updates = response.json()
+        
+        if updates.get('ok') and updates.get('result'):
+            for update in updates['result']:
+                if 'callback_query' in update:
+                    callback_data = update['callback_query']['data']
+                    message_id = update['callback_query']['message']['message_id']
+                    
+                    # Parsear callback_data: formato "est_ESTADO_DNI"
+                    partes = callback_data.split('_')
+                    if len(partes) >= 3:
+                        nuevo_estado = partes[1]
+                        dni = partes[2]
+                        
+                        # Actualizar estado en Google Sheets
+                        if actualizar_estado_pedido(dni, nuevo_estado):
+                            # Responder al callback
+                            answer_url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/answerCallbackQuery"
+                            requests.post(answer_url, data={
+                                "callback_query_id": update['callback_query']['id'],
+                                "text": f"✅ Pedido actualizado a: {nuevo_estado}"
+                            })
+                            
+                            # Editar mensaje original para mostrar que ya se procesó
+                            edit_url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/editMessageText"
+                            requests.post(edit_url, data={
+                                "chat_id": TELEGRAM_CHAT_ID,
+                                "message_id": message_id,
+                                "text": update['callback_query']['message']['text'] + f"\n\n✅ Estado actualizado: {nuevo_estado}"
+                            })
+    except Exception as e:
+        logger.error(f"Error procesando actualizaciones: {e}")
+
 # ==================== PEDIDO MANAGER ====================
 class PedidoManager:
     def __init__(self):
@@ -130,7 +177,8 @@ class PedidoManager:
                 "nombre": nombre,
                 "detalle": detalle,
                 "total": total,
-                "dir": direccion
+                "dir": direccion,
+                "estado": "Pendiente"
             }
             response = requests.get(self.url_apps_script, params=params, timeout=10)
             return True
@@ -139,13 +187,44 @@ class PedidoManager:
     
     def enviar_notificacion(self, nombre, dni, direccion, detalle, total, formatear_func):
         try:
-            msg = f"🔔 NUEVO PEDIDO\n\nCliente: {nombre}\nDNI: {dni}\nDirección: {direccion}\n\nDetalle:\n{detalle}\n\nTOTAL: {formatear_func(total)}"
+            # Botones interactivos
+            keyboard = {
+                "inline_keyboard": [
+                    [
+                        {"text": "✅ Aceptar (Preparando)", "callback_data": f"est_Preparando_{dni}"},
+                        {"text": "🛵 Enviar (En Camino)", "callback_data": f"est_Enviado_{dni}"}
+                    ],
+                    [
+                        {"text": "🏁 Completar (Listo)", "callback_data": f"est_Listo_{dni}"},
+                        {"text": "❌ Cancelar", "callback_data": f"est_Cancelado_{dni}"}
+                    ]
+                ]
+            }
+            
+            msg = (
+                f"🔔 *NUEVO PEDIDO*\n\n"
+                f"👤 *Cliente:* {nombre}\n"
+                f"🆔 *DNI:* {dni}\n"
+                f"📍 *Dirección:* {direccion}\n\n"
+                f"*Detalle:*\n{detalle}\n\n"
+                f"💰 *TOTAL: {formatear_func(total)}*\n"
+                f"🕒 *Hora:* {datetime.now().strftime('%H:%M:%S')}\n\n"
+                f"📌 *Estado actual:* Pendiente"
+            )
+            
             response = requests.post(
                 f"https://api.telegram.org/bot{self.telegram_token}/sendMessage",
-                data={"chat_id": self.telegram_chat_id, "text": msg}
+                data={
+                    "chat_id": self.telegram_chat_id,
+                    "text": msg,
+                    "parse_mode": "Markdown",
+                    "reply_markup": json.dumps(keyboard)
+                },
+                timeout=10
             )
             return True
-        except:
+        except Exception as e:
+            logger.error(f"Error en notificación: {e}")
             return False
 
 # ==================== TEMAS ====================
@@ -176,6 +255,10 @@ def apply_custom_theme():
             font-size: 12px;
             margin-top: 40px;
         }}
+        .stExpander {{
+            background-color: white;
+            border-radius: 12px;
+        }}
     </style>
     """
     st.markdown(custom_css, unsafe_allow_html=True)
@@ -189,25 +272,16 @@ def mostrar_header():
         st.caption(f"📱 {config['telefono']}")
 
 def mostrar_productos():
-    """Muestra productos con sus imágenes desde Google Sheets"""
     df = cargar_productos()
     if df.empty:
         st.warning("No hay productos disponibles")
         return
-    
-    # Verificar columnas necesarias
-    columnas_requeridas = ['producto', 'precio']
-    for col in columnas_requeridas:
-        if col not in df.columns:
-            st.error(f"Falta la columna '{col}' en tu Google Sheets de productos")
-            return
     
     for idx, row in df.iterrows():
         with st.container(border=True):
             col1, col2 = st.columns([1, 2])
             
             with col1:
-                # Mostrar imagen si existe
                 imagen_url = row.get('imagen', '')
                 if pd.notna(imagen_url) and str(imagen_url).strip() != "":
                     try:
@@ -218,22 +292,16 @@ def mostrar_productos():
                     st.image("https://via.placeholder.com/150x150?text=🍔", width=120)
             
             with col2:
-                # Nombre del producto
                 nombre_producto = str(row.get('producto', 'Producto'))
                 st.subheader(nombre_producto)
                 
-                # Descripción si existe
-                descripcion = row.get('descripcion', '')
-                if pd.notna(descripcion) and str(descripcion).strip() != "":
-                    st.caption(str(descripcion))
+                variedades = row.get('variedades', '')
+                if pd.notna(variedades) and str(variedades).strip():
+                    st.caption(f"🎯 {variedades}")
                 
-                # Precio - LIMPIAR CORRECTAMENTE
-                precio_raw = row.get('precio', '0')
-                precio = limpiar_precio(precio_raw)
-                
+                precio = limpiar_precio(row.get('precio', '0'))
                 st.markdown(f"### {formatear_moneda(precio)}")
                 
-                # Botón de agregar
                 item_id = f"{nombre_producto}_{idx}"
                 cant = st.session_state.carrito.get(item_id, {}).get('cant', 0)
                 
@@ -279,13 +347,11 @@ if 'user_dni' not in st.session_state:
     st.session_state.user_dni = None
 
 def cerrar_sesion_admin():
-    """Cierra la sesión de admin y vuelve al inicio"""
     st.session_state.admin_logged = False
     st.session_state.vista = 'inicio'
     st.rerun()
 
 def mostrar_carrito():
-    """Muestra el resumen del carrito con cálculo correcto de totales"""
     if not st.session_state.carrito:
         return
     
@@ -295,7 +361,6 @@ def mostrar_carrito():
     total_productos = 0
     detalle_para_envio = ""
     
-    # Limpiar carrito de items inválidos
     items_a_eliminar = []
     for item_id, datos in st.session_state.carrito.items():
         if datos.get('precio', 0) <= 0 or datos.get('cant', 0) <= 0:
@@ -307,10 +372,10 @@ def mostrar_carrito():
             detalle_para_envio += f"• {datos['cant']}x {nombre}\n"
             st.write(f"**{datos['cant']}x** {nombre} → {formatear_moneda(subtotal)}")
     
-    # Eliminar items inválidos
     for item_id in items_a_eliminar:
         del st.session_state.carrito[item_id]
-        st.rerun()
+        if items_a_eliminar:
+            st.rerun()
     
     metodo_entrega = st.radio("¿Cómo recibís?", ["Retiro en Local", "Delivery"])
     direccion = "Retiro en Local"
@@ -398,9 +463,12 @@ def panel_admin():
     st.title(f"👑 Panel de Administrador - {conf_actual['nombre_local']}")
     st.success("✅ Has iniciado sesión como ADMINISTRADOR")
     
+    # Procesar actualizaciones de Telegram
+    procesar_actualizaciones_telegram()
+    
     st.markdown("---")
     
-    tabs = st.tabs(["📊 Dashboard", "📋 Pedidos", "⚙️ Configuración"])
+    tabs = st.tabs(["📊 Dashboard", "📋 Pedidos", "⚙️ Configuración", "🤖 Telegram"])
     
     with tabs[0]:
         st.subheader("Estadísticas del negocio")
@@ -418,6 +486,17 @@ def panel_admin():
             df_pedidos = pd.read_csv(f"{URL_PEDIDOS_BASE}&cb={int(time.time())}")
             if not df_pedidos.empty:
                 st.dataframe(df_pedidos, use_container_width=True)
+                
+                # Botones para actualizar estado manualmente
+                st.subheader("Actualizar estado manualmente")
+                pedidos_list = df_pedidos['DNI'].tolist() if 'DNI' in df_pedidos.columns else []
+                if pedidos_list:
+                    dni_seleccionado = st.selectbox("Seleccionar pedido por DNI", pedidos_list)
+                    nuevo_estado = st.selectbox("Nuevo estado", ["Pendiente", "Preparando", "Enviado", "Listo", "Cancelado"])
+                    if st.button("Actualizar estado"):
+                        if actualizar_estado_pedido(dni_seleccionado, nuevo_estado):
+                            st.success(f"✅ Pedido actualizado a {nuevo_estado}")
+                            st.rerun()
             else:
                 st.info("No hay pedidos registrados")
         except:
@@ -429,6 +508,17 @@ def panel_admin():
             if key not in ['admin_pass']:
                 st.write(f"**{key}:** {value}")
         st.info("📝 Para modificar la configuración, edita tu Google Sheets")
+    
+    with tabs[3]:
+        st.subheader("Bot de Telegram")
+        st.write("Cuando llega un pedido, el bot envía un mensaje con botones:")
+        st.markdown("""
+        - ✅ **Aceptar** → Cambia estado a "Preparando"
+        - 🛵 **Enviar** → Cambia estado a "Enviado"  
+        - 🏁 **Completar** → Cambia estado a "Listo"
+        - ❌ **Cancelar** → Cambia estado a "Cancelado"
+        """)
+        st.info("Los botones actualizan automáticamente el estado en Google Sheets")
     
     st.markdown("---")
     
