@@ -2,14 +2,21 @@
 __pycache__/
 *.pyc
 *.pyo
+*.pyd
 
-# Streamlit
+# Streamlit secrets
 .streamlit/secrets.toml
 
 # IDE
 .vscode/
 .idea/
+*.swp
+*.swo
 
 # OS
 .DS_Store
 Thumbs.db
+desktop.ini
+
+# Logs
+*.log
