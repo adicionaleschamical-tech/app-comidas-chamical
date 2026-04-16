@@ -209,12 +209,23 @@ pedido_manager = PedidoManager()
 conf = cargar_config()
 costo_delivery = conf.get('costo_delivery', 500)
 
+# Inicializar session state
 if 'vista' not in st.session_state:
     st.session_state.vista = 'inicio'
 if 'carrito' not in st.session_state:
     st.session_state.carrito = {}
 if 'admin_logged' not in st.session_state:
     st.session_state.admin_logged = False
+if 'user_name' not in st.session_state:
+    st.session_state.user_name = None
+if 'user_dni' not in st.session_state:
+    st.session_state.user_dni = None
+
+def cerrar_sesion_admin():
+    """Cierra la sesión de admin y vuelve al inicio"""
+    st.session_state.admin_logged = False
+    st.session_state.vista = 'inicio'
+    st.rerun()
 
 def mostrar_carrito():
     if not st.session_state.carrito:
@@ -279,10 +290,6 @@ def login_admin():
     admin_dni = conf_actual.get('admin_dni', '30588807')
     admin_pass = conf_actual.get('admin_pass', '124578')
     
-    with st.expander("🔍 Diagnóstico"):
-        st.write(f"Admin_DNI: '{admin_dni}'")
-        st.write(f"Admin_Pass: {'*' * len(admin_pass) if admin_pass else 'No encontrada'}")
-    
     col1, col2 = st.columns([1, 2])
     with col1:
         st.image("https://cdn-icons-png.flaticon.com/512/3135/3135715.png", width=150)
@@ -291,13 +298,20 @@ def login_admin():
         usuario = st.text_input("DNI o Usuario")
         password = st.text_input("Contraseña", type="password")
         
-        if st.button("Ingresar", type="primary"):
-            if usuario == admin_dni and password == admin_pass:
-                st.session_state.admin_logged = True
-                st.success("✅ Acceso concedido")
+        col_a, col_b = st.columns(2)
+        with col_a:
+            if st.button("Ingresar", type="primary", use_container_width=True):
+                if usuario == admin_dni and password == admin_pass:
+                    st.session_state.admin_logged = True
+                    st.success("✅ Acceso concedido")
+                    time.sleep(1)
+                    st.rerun()
+                else:
+                    st.error("❌ Credenciales incorrectas")
+        with col_b:
+            if st.button("⬅ Volver al inicio", use_container_width=True):
+                st.session_state.vista = 'inicio'
                 st.rerun()
-            else:
-                st.error("❌ Credenciales incorrectas")
 
 def panel_admin():
     if not st.session_state.get('admin_logged', False):
@@ -305,17 +319,47 @@ def panel_admin():
         return
     
     conf_actual = cargar_config()
-    st.title(f"Panel de {conf_actual['nombre_local']}")
-    
-    if st.button("🚪 Cerrar sesión"):
-        st.session_state.admin_logged = False
-        st.rerun()
+    st.title(f"👑 Panel de Administrador - {conf_actual['nombre_local']}")
+    st.success("✅ Has iniciado sesión como ADMINISTRADOR")
     
     st.markdown("---")
-    st.subheader("Configuración actual")
-    for key, value in conf_actual.items():
-        if key not in ['admin_pass']:
-            st.write(f"**{key}:** {value}")
+    
+    # Pestañas del panel de admin
+    tabs = st.tabs(["📊 Dashboard", "📋 Pedidos", "⚙️ Configuración"])
+    
+    with tabs[0]:
+        st.subheader("Estadísticas del negocio")
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("Pedidos hoy", "0")
+        with col2:
+            st.metric("Ingresos hoy", "$0")
+        with col3:
+            st.metric("Clientes", "0")
+    
+    with tabs[1]:
+        st.subheader("Lista de pedidos")
+        try:
+            df_pedidos = pd.read_csv(f"{URL_PEDIDOS_BASE}&cb={int(time.time())}")
+            if not df_pedidos.empty:
+                st.dataframe(df_pedidos, use_container_width=True)
+            else:
+                st.info("No hay pedidos registrados")
+        except:
+            st.info("No se pudieron cargar los pedidos")
+    
+    with tabs[2]:
+        st.subheader("Configuración actual")
+        for key, value in conf_actual.items():
+            if key not in ['admin_pass']:
+                st.write(f"**{key}:** {value}")
+        st.info("📝 Para modificar la configuración, edita tu Google Sheets")
+    
+    st.markdown("---")
+    
+    # Botón de cerrar sesión - VUELVE AL INICIO
+    if st.button("🚪 Cerrar sesión", use_container_width=True):
+        cerrar_sesion_admin()
 
 def vista_inicio():
     mostrar_header()
@@ -334,38 +378,56 @@ def vista_inicio():
         st.write(f"**📍 Dirección:** {conf.get('direccion_local', 'No especificada')}")
         st.write(f"**📅 Horario:** {conf.get('horario', 'No especificado')}")
         st.write(f"**📱 Teléfono:** {conf.get('telefono', 'No especificado')}")
-        st.write(f"**🚚 Delivery:** {formatear_moneda(costo_delivery)}")
+        st.write(f"**🚚 Costo de envío:** {formatear_moneda(costo_delivery)}")
 
 def vista_pedir():
-    if st.button("⬅ Volver"):
+    # Botón volver
+    if st.button("⬅ Volver al inicio"):
         st.session_state.vista = 'inicio'
         st.rerun()
     
     mostrar_header()
     
-    if 'user_dni' not in st.session_state:
+    # Validar datos del usuario
+    if st.session_state.user_dni is None:
         with st.container(border=True):
+            st.subheader("📝 Tus datos")
             nombre = st.text_input("Nombre completo*")
-            dni = st.text_input("DNI*")
-            if st.button("Ingresar", type="primary"):
+            dni = st.text_input("DNI (solo números)*")
+            
+            if st.button("Ingresar al Menú", type="primary", use_container_width=True):
                 if nombre and dni:
                     st.session_state.user_name = nombre
                     st.session_state.user_dni = dni
                     st.rerun()
                 else:
-                    st.error("Completá todos los datos")
+                    st.error("Por favor completá todos los datos")
         st.stop()
     
+    # Mostrar productos y carrito
     mostrar_productos()
     mostrar_carrito()
+    
+    # Footer
+    st.markdown("---")
+    st.markdown(
+        f"<div class='footer'>"
+        f"{conf['icono']} {conf['nombre_local']} - Pedidos online<br>"
+        f"© {datetime.now().year} - Todos los derechos reservados"
+        f"</div>",
+        unsafe_allow_html=True
+    )
 
 def main():
     conf_actual = cargar_config()
     
+    # Verificar modo mantenimiento
     if conf_actual.get('modo_mantenimiento', False):
-        st.warning("🔧 Local en mantenimiento")
+        st.warning("🔧 El local está en mantenimiento. Volvemos pronto.")
+        st.info(f"📞 Contacto: {conf_actual.get('telefono', 'Consultar')}")
         return
     
+    # Navegación
     if st.session_state.vista == 'inicio':
         vista_inicio()
     elif st.session_state.vista == 'pedir':
