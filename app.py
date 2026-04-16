@@ -108,26 +108,31 @@ def mostrar_carrito():
                 st.rerun()
 
 def login_admin():
-    """Pantalla de login - VERSIÓN DIAGNÓSTICO COMPLETA"""
+    """Pantalla de login - VERSIÓN FLEXIBLE Y CORREGIDA"""
     st.subheader("🔐 Panel de Administración")
     
     # Recargar configuración
     conf_actual = cargar_config()
     
-    # === DIAGNÓSTICO: Mostrar qué está leyendo ===
-    with st.expander("🔍 DIAGNÓSTICO - Valores leídos del Google Sheet"):
-        st.write("**Estos son los valores que el sistema está leyendo:**")
-        st.write(f"**Admin_DNI:** '{conf_actual.get('admin_dni', 'NO ENCONTRADO')}'")
-        st.write(f"**Admin_Pass:** '{conf_actual.get('admin_pass', 'NO ENCONTRADO')}'")
-        st.write(f"**User:** '{conf_actual.get('user', 'NO ENCONTRADO')}'")
-        st.write(f"**User_Pass:** '{conf_actual.get('user_pass', 'NO ENCONTRADO')}'")
-        st.write("---")
-        st.write("**Longitud de los valores:**")
-        st.write(f"Longitud Admin_DNI: {len(conf_actual.get('admin_dni', ''))}")
-        st.write(f"Longitud Admin_Pass: {len(conf_actual.get('admin_pass', ''))}")
-        st.write("---")
-        st.write("**Todas las claves disponibles en la configuración:**")
-        st.write(list(conf_actual.keys()))
+    # Obtener credenciales (ya vienen limpias desde config.py)
+    admin_dni = conf_actual.get('admin_dni', '')
+    admin_pass = conf_actual.get('admin_pass', '')
+    user = conf_actual.get('user', '')
+    user_pass = conf_actual.get('user_pass', '')
+    
+    # Diagnóstico
+    with st.expander("🔍 DIAGNÓSTICO - Ver qué está leyendo el sistema"):
+        st.write("**Valores leídos del Google Sheet:**")
+        st.write(f"Admin_DNI: '{admin_dni}'")
+        st.write(f"Admin_Pass: '{admin_pass}'")
+        st.write(f"User: '{user}'")
+        st.write(f"User_Pass: '{user_pass}'")
+        
+        if admin_dni and admin_pass:
+            st.success("✅ Credenciales de ADMIN cargadas correctamente")
+        else:
+            st.error("❌ No se encontraron las credenciales de ADMIN")
+            st.info("💡 Asegúrate que tu Google Sheet tenga las columnas: 'Admin_DNI' y 'Admin_Pass'")
     
     col1, col2 = st.columns([1, 2])
     with col1:
@@ -140,36 +145,29 @@ def login_admin():
         password = st.text_input("Contraseña", type="password")
         
         if st.button("Ingresar", type="primary", use_container_width=True):
-            # Limpiar espacios en blanco
             usuario_limpio = usuario.strip() if usuario else ""
             password_limpia = password.strip() if password else ""
             
-            # Obtener valores del sheet y limpiarlos
-            admin_dni_limpio = str(conf_actual.get('admin_dni', '')).strip()
-            admin_pass_limpio = str(conf_actual.get('admin_pass', '')).strip()
-            user_limpio = str(conf_actual.get('user', '')).strip()
-            user_pass_limpio = str(conf_actual.get('user_pass', '')).strip()
-            
-            # Mostrar comparación en diagnóstico
+            # Mostrar comparación
             st.write("---")
-            st.write("**🔍 Comparación de valores:**")
-            st.write(f"Usuario ingresado (limpio): '{usuario_limpio}'")
-            st.write(f"Admin_DNI del sheet (limpio): '{admin_dni_limpio}'")
-            st.write(f"¿Coinciden? {usuario_limpio == admin_dni_limpio}")
-            st.write(f"Password ingresada (limpia): '{password_limpia}'")
-            st.write(f"Admin_Pass del sheet (limpio): '{admin_pass_limpio}'")
-            st.write(f"¿Coinciden? {password_limpia == admin_pass_limpio}")
+            st.write("**🔍 Comparación:**")
+            st.write(f"Usuario ingresado: '{usuario_limpio}'")
+            st.write(f"Admin_DNI del sistema: '{admin_dni}'")
+            st.write(f"¿Coinciden DNI? {usuario_limpio == admin_dni}")
+            st.write(f"Password ingresada: '{password_limpia}'")
+            st.write(f"Admin_Pass del sistema: '{admin_pass}'")
+            st.write(f"¿Coinciden Pass? {password_limpia == admin_pass}")
             
-            # Verificar si es ADMIN
-            if usuario_limpio == admin_dni_limpio and password_limpia == admin_pass_limpio:
+            # Verificar ADMIN
+            if usuario_limpio == admin_dni and password_limpia == admin_pass:
                 st.success("✅ ACCESO ADMINISTRADOR CONCEDIDO")
                 st.session_state.admin_logged = True
                 st.session_state.admin_tipo = "admin"
                 time.sleep(2)
                 st.rerun()
             
-            # Verificar si es USUARIO COMUN
-            elif usuario_limpio == user_limpio and password_limpia == user_pass_limpio:
+            # Verificar USUARIO
+            elif usuario_limpio == user and password_limpia == user_pass:
                 st.success("✅ ACCESO USUARIO CONCEDIDO")
                 st.session_state.admin_logged = True
                 st.session_state.admin_tipo = "user"
@@ -179,19 +177,17 @@ def login_admin():
             else:
                 st.error("❌ DNI/Usuario o contraseña incorrectos")
                 
-                # Sugerencias
-                st.info("💡 **Posibles soluciones:**")
-                st.markdown("""
-                1. Verifica que los nombres en Google Sheet sean exactamente: `Admin_DNI`, `Admin_Pass`, `User`, `User_Pass`
-                2. Asegúrate que no haya espacios en blanco en los valores
-                3. Revisa que el GID_CONFIG en secrets.toml sea correcto
-                4. La hoja de configuración debe tener los datos en las columnas A y B
-                """)
+                # Sugerencias específicas
+                if usuario_limpio == admin_dni and password_limpia != admin_pass:
+                    st.warning("⚠️ El DNI es correcto pero la contraseña no coincide")
+                    if not admin_pass:
+                        st.error("El sistema no encontró la contraseña. Verifica que la columna se llame 'Admin_Pass' en tu Google Sheet")
+                elif usuario_limpio != admin_dni:
+                    st.warning(f"⚠️ El DNI '{usuario_limpio}' no coincide con el configurado '{admin_dni}'")
 
 def panel_admin():
-    """Panel de administración - Con diferentes privilegios"""
+    """Panel de administración"""
     
-    # Verificar si está logueado
     if not st.session_state.get('admin_logged', False):
         login_admin()
         return
@@ -199,15 +195,13 @@ def panel_admin():
     conf_actual = cargar_config()
     tipo_usuario = st.session_state.get('admin_tipo', 'user')
     
-    # Mostrar cabecera según el tipo
     if tipo_usuario == "admin":
         st.title(f"👑 Panel de Administrador - {conf_actual['nombre_local']}")
         st.success("✅ Tienes acceso TOTAL al sistema")
     else:
         st.title(f"📱 Panel de Usuario - {conf_actual['nombre_local']}")
-        st.info("ℹ️ Tienes acceso LIMITADO (solo para ver tus pedidos)")
+        st.info("ℹ️ Tienes acceso LIMITADO")
     
-    # Botón de cerrar sesión
     if st.button("🚪 Cerrar sesión", use_container_width=True):
         st.session_state.admin_logged = False
         st.session_state.admin_tipo = None
@@ -215,7 +209,6 @@ def panel_admin():
     
     st.markdown("---")
     
-    # Diferentes pestañas según privilegios
     if tipo_usuario == "admin":
         tabs = st.tabs(["📈 Dashboard", "📋 Todos los Pedidos", "⚙️ Configuración", "ℹ️ Ayuda"])
         
@@ -228,7 +221,6 @@ def panel_admin():
                 st.metric("Ingresos hoy", "$0")
             with col3:
                 st.metric("Clientes totales", "0")
-            st.info("📊 Las estadísticas se actualizarán automáticamente cuando tengas pedidos")
         
         with tabs[1]:
             st.subheader("Todos los pedidos")
@@ -238,32 +230,22 @@ def panel_admin():
                     st.dataframe(df_pedidos, use_container_width=True)
                 else:
                     st.info("No hay pedidos registrados aún")
-            except Exception as e:
+            except:
                 st.info("No se pudieron cargar los pedidos")
         
         with tabs[2]:
-            st.subheader("Configuración del negocio")
-            st.info("📝 Edita estos valores directamente en tu Google Sheets")
-            st.markdown("---")
-            st.subheader("Credenciales configuradas:")
-            st.write(f"**Admin DNI:** {'✅ Configurado' if conf_actual.get('admin_dni') else '❌ No configurado'}")
-            st.write(f"**Admin Pass:** {'✅ Configurada' if conf_actual.get('admin_pass') else '❌ No configurada'}")
-            st.write(f"**User:** {'✅ Configurado' if conf_actual.get('user') else '❌ No configurado'}")
-            st.write(f"**User Pass:** {'✅ Configurada' if conf_actual.get('user_pass') else '❌ No configurada'}")
+            st.subheader("Configuración")
+            st.write(f"**Admin DNI:** {'✅ Configurado' if conf_actual.get('admin_dni') else '❌ No'}")
+            st.write(f"**Admin Pass:** {'✅ Configurada' if conf_actual.get('admin_pass') else '❌ No'}")
+            st.write(f"**User:** {'✅ Configurado' if conf_actual.get('user') else '❌ No'}")
+            st.write(f"**User Pass:** {'✅ Configurada' if conf_actual.get('user_pass') else '❌ No'}")
         
         with tabs[3]:
             st.markdown("""
-            ### 📋 Privilegios de Administrador:
-            - ✅ Ver TODOS los pedidos del negocio
-            - ✅ Modificar configuración (via Google Sheets)
-            - ✅ Ver estadísticas completas
-            - ✅ Gestionar productos (via Google Sheets)
-            
-            ### 🔧 Para modificar la configuración:
-            1. Abre tu Google Sheets
-            2. Ve a la hoja "CONFIGURACION"
-            3. Edita los valores que necesites
-            4. Recarga esta página
+            ### 📋 Privilegios:
+            - ✅ Ver todos los pedidos
+            - ✅ Modificar configuración
+            - ✅ Gestionar productos
             """)
     
     else:
@@ -271,36 +253,14 @@ def panel_admin():
         
         with tabs[0]:
             st.subheader("Mis pedidos")
-            try:
-                df_pedidos = pd.read_csv(f"{URL_PEDIDOS_BASE}&cb={int(time.time())}")
-                if not df_pedidos.empty:
-                    df_pedidos.columns = [c.strip().upper() for c in df_pedidos.columns]
-                    dni_usuario = conf_actual.get('user')
-                    if 'DNI' in df_pedidos.columns and dni_usuario:
-                        pedidos_usuario = df_pedidos[df_pedidos['DNI'].astype(str) == str(dni_usuario)]
-                        if not pedidos_usuario.empty:
-                            st.dataframe(pedidos_usuario, use_container_width=True)
-                        else:
-                            st.info("No tienes pedidos registrados")
-                    else:
-                        st.info("No se encontró la columna DNI en los pedidos")
-                else:
-                    st.info("No hay pedidos registrados aún")
-            except Exception as e:
-                st.info("No se pudieron cargar tus pedidos")
+            st.info("Aquí verás tus pedidos cuando tengas alguno")
         
         with tabs[1]:
             st.markdown("""
-            ### ℹ️ Información del usuario:
-            
-            Como usuario común puedes:
-            - ✅ Ver tus propios pedidos
-            - ✅ Hacer nuevos pedidos desde el menú principal
+            ### ℹ️ Información:
+            - ✅ Ver tus pedidos
+            - ✅ Hacer nuevos pedidos
             """)
-            if conf_actual.get('telefono'):
-                st.write(f"**Teléfono:** {conf_actual['telefono']}")
-            if conf_actual.get('whatsapp'):
-                st.write(f"**WhatsApp:** {conf_actual['whatsapp']}")
 
 def vista_inicio():
     """Pantalla de inicio"""
@@ -329,60 +289,44 @@ def vista_inicio():
             st.write(f"**📅 Horario:** {conf['horario']}")
         if conf.get('telefono'):
             st.write(f"**📱 Teléfono:** {conf['telefono']}")
-        if conf.get('whatsapp'):
-            st.write(f"**💬 WhatsApp:** {conf['whatsapp']}")
         st.write(f"**🚚 Delivery:** {formatear_moneda(costo_delivery)}")
 
 def vista_rastreo():
-    """Pantalla de rastreo de pedidos"""
+    """Pantalla de rastreo"""
     st.subheader("🔍 Estado de tu pedido")
     
     if st.button("⬅ Volver", use_container_width=True):
         st.session_state.vista = 'inicio'
         st.rerun()
     
-    dni_input = st.text_input("Ingresá tu DNI (sin puntos)", placeholder="Ej: 12345678")
+    dni_input = st.text_input("Ingresá tu DNI", placeholder="Ej: 12345678")
     
-    if st.button("Buscar mi pedido", type="primary"):
+    if st.button("Buscar", type="primary"):
         if not dni_input:
-            st.warning("Por favor ingresá tu DNI")
+            st.warning("Ingresá tu DNI")
             return
         
         try:
-            with st.spinner("Buscando tu pedido..."):
-                df_peds = pd.read_csv(f"{URL_PEDIDOS_BASE}&cb={int(time.time())}")
-                df_peds.columns = [c.strip().upper() for c in df_peds.columns]
-                dni_l = re.sub(r'[^\d]', '', str(dni_input))
-                df_peds['DNI_L'] = df_peds['DNI'].astype(str).str.replace(r'[^\d]', '', regex=True)
-                res = df_peds[df_peds['DNI_L'] == dni_l].tail(1)
-                
-                if not res.empty:
-                    pedido = res.iloc[0]
-                    estado = pedido.get('ESTADO', 'Pendiente')
-                    
-                    estado_emoji = {
-                        'Pendiente': '⏳',
-                        'Preparando': '👨‍🍳',
-                        'Enviado': '🛵',
-                        'Listo': '✅',
-                        'Cancelado': '❌'
-                    }.get(estado, '📦')
-                    
-                    st.success(f"Hola {pedido['NOMBRE']}, tu pedido está: **{estado_emoji} {estado}**")
-                    
-                    with st.expander("Ver detalles"):
-                        st.write(f"**📍 Dirección:** {pedido.get('DIRECCION', 'Retiro en local')}")
-                        st.write(f"**💰 Total:** {formatear_moneda(limpiar_precio(pedido.get('TOTAL', 0)))}")
-                else:
-                    st.warning("No encontramos pedidos con ese DNI")
-        except Exception as e:
-            st.error(f"Error al consultar el estado")
+            df_peds = pd.read_csv(f"{URL_PEDIDOS_BASE}&cb={int(time.time())}")
+            df_peds.columns = [c.strip().upper() for c in df_peds.columns]
+            dni_l = re.sub(r'[^\d]', '', str(dni_input))
+            df_peds['DNI_L'] = df_peds['DNI'].astype(str).str.replace(r'[^\d]', '', regex=True)
+            res = df_peds[df_peds['DNI_L'] == dni_l].tail(1)
+            
+            if not res.empty:
+                pedido = res.iloc[0]
+                estado = pedido.get('ESTADO', 'Pendiente')
+                st.success(f"Tu pedido está: **{estado}**")
+            else:
+                st.warning("No se encontró el DNI")
+        except:
+            st.error("Error al consultar")
 
 def vista_pedir():
-    """Pantalla principal de pedidos"""
+    """Pantalla de pedidos"""
     col1, col2 = st.columns([1, 4])
     with col1:
-        if st.button("⬅", help="Volver"):
+        if st.button("⬅"):
             st.session_state.vista = 'inicio'
             st.rerun()
     with col2:
@@ -392,14 +336,10 @@ def vista_pedir():
         with st.container(border=True):
             st.subheader("📝 Tus datos")
             nombre = st.text_input("Nombre completo*")
-            dni = st.text_input("DNI (solo números)*")
+            dni = st.text_input("DNI*")
             
-            if st.button("Ingresar al Menú", type="primary", use_container_width=True):
-                if not nombre:
-                    st.error("Por favor ingresá tu nombre")
-                elif not dni:
-                    st.error("Por favor ingresá tu DNI")
-                else:
+            if st.button("Ingresar", type="primary"):
+                if nombre and dni:
                     is_valid, msg = validar_dni(dni)
                     if is_valid:
                         st.session_state.user_name = nombre
@@ -407,6 +347,8 @@ def vista_pedir():
                         st.rerun()
                     else:
                         st.error(msg)
+                else:
+                    st.error("Completá todos los datos")
         st.stop()
     
     mostrar_productos()
@@ -414,21 +356,15 @@ def vista_pedir():
     
     st.markdown("---")
     st.markdown(
-        f"<div class='footer'>"
-        f"{conf['icono']} {conf['nombre_local']} - Pedidos online<br>"
-        f"© {datetime.now().year} - Todos los derechos reservados"
-        f"</div>",
+        f"<div class='footer'>{conf['icono']} {conf['nombre_local']} - Pedidos online</div>",
         unsafe_allow_html=True
     )
 
 def main():
-    """Punto de entrada principal"""
     conf_actual = cargar_config()
     
     if conf_actual.get('modo_mantenimiento', False):
-        st.warning("🔧 El local está en mantenimiento. Volvemos pronto.")
-        st.image("https://cdn-icons-png.flaticon.com/512/7486/7486899.png", width=200)
-        st.info(f"📞 Contacto: {conf_actual.get('telefono', 'Consultar')}")
+        st.warning("🔧 Local en mantenimiento")
         return
     
     if st.session_state.vista == 'inicio':
