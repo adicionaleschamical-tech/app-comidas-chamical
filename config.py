@@ -10,7 +10,7 @@ import logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Intentar cargar secrets, si no existen usar valores por defecto
+# Intentar cargar secrets
 try:
     TELEGRAM_TOKEN = st.secrets["telegram"]["token"]
     TELEGRAM_CHAT_ID = st.secrets["telegram"]["chat_id"]
@@ -19,7 +19,6 @@ try:
     GID_PRODUCTOS = st.secrets["sheets"]["gid_productos"]
     GID_PEDIDOS = st.secrets["sheets"]["gid_pedidos"]
 except:
-    # Fallback para desarrollo local
     TELEGRAM_TOKEN = "8793126374:AAG5zIBWrUOq50Ku0zjXEe8joD_JlcCDURI"
     TELEGRAM_CHAT_ID = "7860013984"
     ID_SHEET = "1WcVWos3p9NJKKEpY2L1-gmKhEkZJH1FL8Hy5bNqHyRA"
@@ -27,7 +26,6 @@ except:
     GID_PRODUCTOS = "0"
     GID_PEDIDOS = "1395505058"
 
-# URLs de Google Sheets
 URL_PRODUCTOS = f"https://docs.google.com/spreadsheets/d/{ID_SHEET}/export?format=csv&gid={GID_PRODUCTOS}"
 URL_CONFIG = f"https://docs.google.com/spreadsheets/d/{ID_SHEET}/export?format=csv&gid={GID_CONFIG}"
 URL_PEDIDOS_BASE = f"https://docs.google.com/spreadsheets/d/{ID_SHEET}/export?format=csv&gid={GID_PEDIDOS}"
@@ -48,7 +46,12 @@ def cargar_config():
                 value = str(row[1]).strip() if pd.notna(row[1]) else ""
                 config[key] = value
         
-        # Configuración del negocio
+        # Buscar credenciales en diferentes formatos
+        admin_dni = (config.get('Admin_DNI') or config.get('admin_dni') or config.get('ADMIN_DNI') or config.get('Admin DNI') or '')
+        admin_pass = (config.get('Admin_Pass') or config.get('admin_pass') or config.get('ADMIN_PASS') or config.get('Admin Pass') or '')
+        user = (config.get('User') or config.get('user') or config.get('USER') or '')
+        user_pass = (config.get('User_Pass') or config.get('user_pass') or config.get('USER_PASS') or '')
+        
         config_nueva = {
             'nombre_local': config.get('Nombre_Local', 'Mi Negocio'),
             'logo_url': config.get('Logo_URL', ''),
@@ -56,12 +59,11 @@ def cargar_config():
             'alias': config.get('Alias', ''),
             'costo_delivery': limpiar_precio(config.get('Costo_Delivery', 0)),
             'telefono': config.get('Telefono', ''),
-            'admin_dni': config.get('Admin_DNI', ''),
-            'admin_pass_hash': config.get('Admin_Pass', ''),
-            'user': config.get('User', 'admin'),
-            'user_pass': config.get('User_Pass', 'admin123'),
+            'admin_dni': str(admin_dni).strip(),
+            'admin_pass': str(admin_pass).strip(),
+            'user': str(user).strip(),
+            'user_pass': str(user_pass).strip(),
             'modo_mantenimiento': config.get('MODO_MANTENIMIENTO', 'false').lower() == 'true',
-            # Configuración visual
             'tema_primario': config.get('Tema_Primario', '#FF4B4B'),
             'tema_secundario': config.get('Tema_Secundario', '#FF6B6B'),
             'background_color': config.get('Background_Color', '#FFFFFF'),
@@ -79,7 +81,11 @@ def cargar_config():
             'costo_delivery': 0,
             'tema_primario': '#FF4B4B',
             'tema_secundario': '#FF6B6B',
-            'modo_mantenimiento': False
+            'modo_mantenimiento': False,
+            'admin_dni': '30588807',
+            'admin_pass': '124578',
+            'user': 'usuario',
+            'user_pass': 'usuario123'
         }
 
 @st.cache_data(ttl=60)
@@ -89,7 +95,6 @@ def cargar_productos():
         resp_p = requests.get(f"{URL_PRODUCTOS}&cb={int(time.time())}", timeout=10)
         resp_p.raise_for_status()
         df_p = pd.read_csv(StringIO(resp_p.text))
-        # Normalizar nombres de columnas a minúsculas
         df_p.columns = [c.strip().lower() for c in df_p.columns]
         return df_p
     except Exception as e:
