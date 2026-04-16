@@ -28,6 +28,8 @@ if 'carrito' not in st.session_state:
     st.session_state.carrito = {}
 if 'admin_logged' not in st.session_state:
     st.session_state.admin_logged = False
+if 'admin_tipo' not in st.session_state:
+    st.session_state.admin_tipo = None
 
 def validar_dni(dni):
     """Valida formato de DNI"""
@@ -65,7 +67,7 @@ def mostrar_carrito():
     if metodo_entrega == "Delivery":
         cargo_envio = costo_delivery
         direccion = st.text_input("🏠 Dirección de entrega:", placeholder="Calle y número")
-        if direccion:
+        if direccion and direccion != "Retiro en Local":
             st.info(f"Costo de envío: {formatear_moneda(cargo_envio)}")
     
     total_final = total_productos + cargo_envio
@@ -78,7 +80,7 @@ def mostrar_carrito():
             st.rerun()
     with col2:
         if st.button("🚀 CONFIRMAR Y ENVIAR", use_container_width=True, type="primary"):
-            if metodo_entrega == "Delivery" and (not direccion or direccion == "Retiro en Local"):
+            if metodo_entrega == "Delivery" and (not direccion or direccion == "Retiro en Local" or direccion.strip() == ""):
                 st.error("Por favor, ingresá una dirección válida")
                 return
             
@@ -106,90 +108,179 @@ def mostrar_carrito():
                 st.rerun()
 
 def login_admin():
-    """Pantalla de login para administradores"""
+    """Pantalla de login - Diferencia entre ADMIN y USUARIO COMUN"""
     st.subheader("🔐 Panel de Administración")
+    
+    # Recargar configuración
+    conf_actual = cargar_config()
     
     col1, col2 = st.columns([1, 2])
     with col1:
         st.image("https://cdn-icons-png.flaticon.com/512/3135/3135715.png", width=150)
     
     with col2:
-        user = st.text_input("Usuario")
+        st.markdown("### Ingresa tus credenciales")
+        
+        usuario = st.text_input("DNI o Usuario")
         password = st.text_input("Contraseña", type="password")
         
-        if st.button("Ingresar", type="primary"):
-            if user == conf.get('user') and password == conf.get('user_pass'):
+        if st.button("Ingresar", type="primary", use_container_width=True):
+            # Verificar si es ADMIN (por DNI)
+            if usuario == conf_actual.get('admin_dni') and password == conf_actual.get('admin_pass'):
                 st.session_state.admin_logged = True
+                st.session_state.admin_tipo = "admin"
+                st.success("✅ Acceso como ADMINISTRADOR")
+                time.sleep(1)
                 st.rerun()
+            
+            # Verificar si es USUARIO COMUN
+            elif usuario == conf_actual.get('user') and password == conf_actual.get('user_pass'):
+                st.session_state.admin_logged = True
+                st.session_state.admin_tipo = "user"
+                st.success("✅ Acceso como USUARIO")
+                time.sleep(1)
+                st.rerun()
+            
             else:
-                st.error("Usuario o contraseña incorrectos")
+                st.error("❌ DNI/Usuario o contraseña incorrectos")
+                st.info(f"Admin DNI configurado: {conf_actual.get('admin_dni')}")
+                st.info(f"User configurado: {conf_actual.get('user')}")
 
 def panel_admin():
-    """Panel de administración"""
+    """Panel de administración - Con diferentes privilegios"""
+    
+    # Verificar si está logueado
     if not st.session_state.get('admin_logged', False):
         login_admin()
         return
     
-    st.title(f"📊 Panel de {conf['nombre_local']}")
+    conf_actual = cargar_config()
+    tipo_usuario = st.session_state.get('admin_tipo', 'user')
     
-    tabs = st.tabs(["📈 Dashboard", "📋 Pedidos", "⚙️ Configuración", "ℹ️ Ayuda"])
+    # Mostrar cabecera según el tipo
+    if tipo_usuario == "admin":
+        st.title(f"👑 Panel de Administrador - {conf_actual['nombre_local']}")
+        st.success("✅ Tienes acceso TOTAL al sistema")
+    else:
+        st.title(f"📱 Panel de Usuario - {conf_actual['nombre_local']}")
+        st.info("ℹ️ Tienes acceso LIMITADO (solo para ver tus pedidos)")
     
-    with tabs[0]:
-        st.subheader("Estadísticas del día")
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            st.metric("Pedidos hoy", "0", "+0")
-        with col2:
-            st.metric("Ingresos hoy", "$0", "+0")
-        with col3:
-            st.metric("Clientes", "0", "+0")
-        st.info("📊 Las estadísticas se actualizarán automáticamente cuando tengas pedidos")
-    
-    with tabs[1]:
-        st.subheader("Pedidos")
-        try:
-            df_pedidos = pd.read_csv(f"{URL_PEDIDOS_BASE}&cb={int(time.time())}")
-            if not df_pedidos.empty:
-                st.dataframe(df_pedidos, use_container_width=True)
-            else:
-                st.info("No hay pedidos registrados aún")
-        except:
-            st.info("No se pudieron cargar los pedidos")
-    
-    with tabs[2]:
-        st.subheader("Configuración del negocio")
-        st.info("📝 Edita estos valores directamente en tu Google Sheets")
-        
-        for key, value in conf.items():
-            if key not in ['admin_pass_hash', 'user_pass']:
-                st.text_input(key.replace('_', ' ').title(), value=value, disabled=True)
-    
-    with tabs[3]:
-        st.subheader("Ayuda rápida")
-        st.markdown("""
-        ### 📋 Instrucciones:
-        1. **Productos**: Edita la hoja "PRODUCTOS" en Google Sheets
-        2. **Configuración**: Edita la hoja "CONFIGURACIÓN"
-        3. **Pedidos**: Se ven automáticamente en la pestaña Pedidos
-        
-        ### 🎨 Personalización:
-        - Cambia `Tema_Primario` y `Tema_Secundario` para cambiar colores
-        - Agrega un `Logo_URL` para tu logo
-        - Modifica `Horario` y `Telefono` para mostrar información de contacto
-        """)
-    
-    if st.button("🚪 Cerrar sesión"):
+    # Botón de cerrar sesión
+    if st.button("🚪 Cerrar sesión", use_container_width=True):
         st.session_state.admin_logged = False
+        st.session_state.admin_tipo = None
         st.rerun()
+    
+    st.markdown("---")
+    
+    # Diferentes pestañas según privilegios
+    if tipo_usuario == "admin":
+        # ADMIN ve todas las pestañas
+        tabs = st.tabs(["📈 Dashboard", "📋 Todos los Pedidos", "⚙️ Configuración", "ℹ️ Ayuda"])
+        
+        with tabs[0]:
+            st.subheader("Estadísticas del negocio")
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric("Pedidos hoy", "0")
+            with col2:
+                st.metric("Ingresos hoy", "$0")
+            with col3:
+                st.metric("Clientes totales", "0")
+            st.info("📊 Las estadísticas se actualizarán automáticamente cuando tengas pedidos")
+        
+        with tabs[1]:
+            st.subheader("Todos los pedidos")
+            try:
+                df_pedidos = pd.read_csv(f"{URL_PEDIDOS_BASE}&cb={int(time.time())}")
+                if not df_pedidos.empty:
+                    st.dataframe(df_pedidos, use_container_width=True)
+                else:
+                    st.info("No hay pedidos registrados aún")
+            except Exception as e:
+                st.info(f"No se pudieron cargar los pedidos: {e}")
+        
+        with tabs[2]:
+            st.subheader("Configuración del negocio")
+            st.info("📝 Edita estos valores directamente en tu Google Sheets")
+            
+            # Mostrar configuración actual
+            for key, value in conf_actual.items():
+                if key not in ['admin_pass', 'user_pass']:
+                    st.text_input(key.replace('_', ' ').title(), value=str(value), disabled=True)
+            
+            st.markdown("---")
+            st.subheader("Credenciales configuradas:")
+            st.write(f"**Admin DNI:** {conf_actual.get('admin_dni', 'No configurado')}")
+            st.write(f"**Admin Pass:** {'✓ Configurada' if conf_actual.get('admin_pass') else '✗ No configurada'}")
+            st.write(f"**User:** {conf_actual.get('user', 'No configurado')}")
+            st.write(f"**User Pass:** {'✓ Configurada' if conf_actual.get('user_pass') else '✗ No configurada'}")
+        
+        with tabs[3]:
+            st.markdown("""
+            ### 📋 Privilegios de Administrador:
+            - ✅ Ver TODOS los pedidos del negocio
+            - ✅ Modificar configuración (via Google Sheets)
+            - ✅ Ver estadísticas completas
+            - ✅ Gestionar productos (via Google Sheets)
+            
+            ### 🔧 Para modificar la configuración:
+            1. Abre tu Google Sheets
+            2. Ve a la hoja "CONFIGURACION"
+            3. Edita los valores que necesites
+            4. Recarga esta página
+            """)
+    
+    else:
+        # USUARIO COMUN ve solo información básica
+        tabs = st.tabs(["📋 Mis Pedidos", "ℹ️ Información"])
+        
+        with tabs[0]:
+            st.subheader("Mis pedidos")
+            try:
+                df_pedidos = pd.read_csv(f"{URL_PEDIDOS_BASE}&cb={int(time.time())}")
+                if not df_pedidos.empty:
+                    df_pedidos.columns = [c.strip().upper() for c in df_pedidos.columns]
+                    # Filtrar pedidos del usuario actual
+                    dni_usuario = conf_actual.get('user')
+                    if 'DNI' in df_pedidos.columns:
+                        pedidos_usuario = df_pedidos[df_pedidos['DNI'].astype(str) == str(dni_usuario)]
+                        if not pedidos_usuario.empty:
+                            st.dataframe(pedidos_usuario, use_container_width=True)
+                        else:
+                            st.info("No tienes pedidos registrados")
+                    else:
+                        st.info("No se encontró la columna DNI en los pedidos")
+                else:
+                    st.info("No hay pedidos registrados aún")
+            except Exception as e:
+                st.info(f"No se pudieron cargar tus pedidos: {e}")
+        
+        with tabs[1]:
+            st.markdown("""
+            ### ℹ️ Información del usuario:
+            
+            Como usuario común puedes:
+            - ✅ Ver tus propios pedidos
+            - ✅ Hacer nuevos pedidos desde el menú principal
+            
+            ### 📞 Contacto:
+            """)
+            if conf_actual.get('telefono'):
+                st.write(f"**Teléfono:** {conf_actual['telefono']}")
+            if conf_actual.get('whatsapp'):
+                st.write(f"**WhatsApp:** {conf_actual['whatsapp']}")
+            if conf_actual.get('direccion_local'):
+                st.write(f"**Dirección:** {conf_actual['direccion_local']}")
 
 def vista_inicio():
     """Pantalla de inicio"""
     mostrar_header()
     
-    # Botón de admin oculto (click en el icono)
+    # Botón de admin (solo visible pero funcional)
     col1, col2, col3 = st.columns([1, 2, 1])
     with col3:
-        if st.button("⚙️", help="Panel de administración"):
+        if st.button("⚙️ Admin", help="Panel de administración"):
             st.session_state.vista = 'admin'
             st.rerun()
     
@@ -257,7 +348,7 @@ def vista_rastreo():
                 else:
                     st.warning("No encontramos pedidos con ese DNI")
         except Exception as e:
-            st.error("Error al consultar el estado")
+            st.error(f"Error al consultar el estado: {e}")
 
 def vista_pedir():
     """Pantalla principal de pedidos"""
@@ -309,13 +400,13 @@ def vista_pedir():
 
 def main():
     """Punto de entrada principal"""
-    conf = cargar_config()
+    conf_actual = cargar_config()
     
     # Verificar modo mantenimiento
-    if conf.get('modo_mantenimiento', False):
+    if conf_actual.get('modo_mantenimiento', False):
         st.warning("🔧 El local está en mantenimiento. Volvemos pronto.")
         st.image("https://cdn-icons-png.flaticon.com/512/7486/7486899.png", width=200)
-        st.info(f"📞 Contacto: {conf.get('telefono', 'Consultar')}")
+        st.info(f"📞 Contacto: {conf_actual.get('telefono', 'Consultar')}")
         return
     
     # Navegación
