@@ -34,14 +34,24 @@ URL_APPS_SCRIPT = "https://script.google.com/macros/s/AKfycbzl9dpOIAVs7U3sfiS8pJ
 
 # ==================== FUNCIONES DE APOYO ====================
 def limpiar_precio(texto):
+    """Limpia formato de precio - convierte a número entero"""
     if pd.isna(texto) or str(texto).strip() == "":
         return 0
-    texto_limpio = str(texto).replace('.', '').replace(',', '')
-    numeros = re.findall(r'\d+', texto_limpio)
-    return int(''.join(numeros)) if numeros else 0
+    # Convertir a string y limpiar
+    texto_str = str(texto).strip()
+    # Eliminar todo lo que no sea número
+    numeros = re.findall(r'\d+', texto_str)
+    if numeros:
+        # Tomar el primer grupo de números encontrado
+        return int(numeros[0])
+    return 0
 
 def formatear_moneda(valor):
-    return f"$ {int(valor):,}".replace(",", ".")
+    """Formatea moneda al estilo argentino"""
+    try:
+        return f"$ {int(valor):,}".replace(",", ".")
+    except:
+        return f"$ 0"
 
 @st.cache_data(ttl=300)
 def cargar_config():
@@ -179,29 +189,76 @@ def mostrar_header():
         st.caption(f"📱 {config['telefono']}")
 
 def mostrar_productos():
+    """Muestra productos con sus imágenes desde Google Sheets"""
     df = cargar_productos()
     if df.empty:
         st.warning("No hay productos disponibles")
         return
     
-    for _, row in df.iterrows():
+    # Verificar columnas necesarias
+    columnas_requeridas = ['producto', 'precio']
+    for col in columnas_requeridas:
+        if col not in df.columns:
+            st.error(f"Falta la columna '{col}' en tu Google Sheets de productos")
+            return
+    
+    for idx, row in df.iterrows():
         with st.container(border=True):
             col1, col2 = st.columns([1, 2])
+            
             with col1:
-                st.image("https://via.placeholder.com/150x150?text=🍔", width=120)
+                # Mostrar imagen si existe
+                imagen_url = row.get('imagen', '')
+                if pd.notna(imagen_url) and str(imagen_url).strip() != "":
+                    try:
+                        st.image(imagen_url, use_container_width=True)
+                    except:
+                        st.image("https://via.placeholder.com/150x150?text=🍔", width=120)
+                else:
+                    st.image("https://via.placeholder.com/150x150?text=🍔", width=120)
+            
             with col2:
-                st.subheader(row.get('producto', 'Producto'))
-                precio = limpiar_precio(row.get('precio', '0'))
+                # Nombre del producto
+                nombre_producto = str(row.get('producto', 'Producto'))
+                st.subheader(nombre_producto)
+                
+                # Descripción si existe
+                descripcion = row.get('descripcion', '')
+                if pd.notna(descripcion) and str(descripcion).strip() != "":
+                    st.caption(str(descripcion))
+                
+                # Precio - LIMPIAR CORRECTAMENTE
+                precio_raw = row.get('precio', '0')
+                precio = limpiar_precio(precio_raw)
+                
                 st.markdown(f"### {formatear_moneda(precio)}")
                 
-                item_id = str(row.get('producto', 'producto'))
+                # Botón de agregar
+                item_id = f"{nombre_producto}_{idx}"
                 cant = st.session_state.carrito.get(item_id, {}).get('cant', 0)
                 
-                if st.button("➕ Agregar", key=f"add_{item_id}"):
-                    st.session_state.carrito[item_id] = {'cant': cant + 1, 'precio': precio}
-                    st.rerun()
-                if cant > 0:
-                    st.caption(f"En carrito: {cant}")
+                col_a, col_b, col_c = st.columns([1, 1, 1])
+                with col_a:
+                    if st.button("➖", key=f"minus_{item_id}"):
+                        if cant > 0:
+                            if cant == 1:
+                                del st.session_state.carrito[item_id]
+                            else:
+                                st.session_state.carrito[item_id]['cant'] -= 1
+                            st.rerun()
+                with col_b:
+                    st.markdown(f"<h3 style='text-align: center;'>{cant}</h3>", unsafe_allow_html=True)
+                with col_c:
+                    if st.button("➕", key=f"plus_{item_id}"):
+                        if item_id in st.session_state.carrito:
+                            st.session_state.carrito[item_id]['cant'] += 1
+                        else:
+                            st.session_state.carrito[item_id] = {
+                                'cant': 1, 
+                                'precio': precio,
+                                'nombre': nombre_producto
+                            }
+                        st.rerun()
 
 # ==================== APP PRINCIPAL ====================
 apply_custom_theme()
@@ -228,6 +285,7 @@ def cerrar_sesion_admin():
     st.rerun()
 
 def mostrar_carrito():
+    """Muestra el resumen del carrito con cálculo correcto de totales"""
     if not st.session_state.carrito:
         return
     
@@ -237,11 +295,22 @@ def mostrar_carrito():
     total_productos = 0
     detalle_para_envio = ""
     
-    for item, datos in st.session_state.carrito.items():
-        subtotal = datos['cant'] * datos['precio']
-        total_productos += subtotal
-        detalle_para_envio += f"• {datos['cant']}x {item}\n"
-        st.write(f"**{datos['cant']}x** {item} → {formatear_moneda(subtotal)}")
+    # Limpiar carrito de items inválidos
+    items_a_eliminar = []
+    for item_id, datos in st.session_state.carrito.items():
+        if datos.get('precio', 0) <= 0 or datos.get('cant', 0) <= 0:
+            items_a_eliminar.append(item_id)
+        else:
+            subtotal = datos['cant'] * datos['precio']
+            total_productos += subtotal
+            nombre = datos.get('nombre', item_id)
+            detalle_para_envio += f"• {datos['cant']}x {nombre}\n"
+            st.write(f"**{datos['cant']}x** {nombre} → {formatear_moneda(subtotal)}")
+    
+    # Eliminar items inválidos
+    for item_id in items_a_eliminar:
+        del st.session_state.carrito[item_id]
+        st.rerun()
     
     metodo_entrega = st.radio("¿Cómo recibís?", ["Retiro en Local", "Delivery"])
     direccion = "Retiro en Local"
@@ -249,39 +318,46 @@ def mostrar_carrito():
     
     if metodo_entrega == "Delivery":
         cargo_envio = costo_delivery
-        direccion = st.text_input("🏠 Dirección de entrega:")
-        if direccion:
+        direccion = st.text_input("🏠 Dirección de entrega:", placeholder="Calle y número")
+        if direccion and direccion != "Retiro en Local":
             st.info(f"Costo de envío: {formatear_moneda(cargo_envio)}")
     
     total_final = total_productos + cargo_envio
     st.markdown(f"## TOTAL A PAGAR: {formatear_moneda(total_final)}")
     
-    if st.button("🚀 CONFIRMAR Y ENVIAR", use_container_width=True, type="primary"):
-        if metodo_entrega == "Delivery" and (not direccion or direccion == "Retiro en Local"):
-            st.error("Por favor, ingresá una dirección válida")
-            return
-        
-        if pedido_manager.registrar_pedido(
-            st.session_state.user_dni,
-            st.session_state.user_name,
-            detalle_para_envio,
-            total_final,
-            direccion
-        ):
-            pedido_manager.enviar_notificacion(
-                st.session_state.user_name,
-                st.session_state.user_dni,
-                direccion,
-                detalle_para_envio,
-                total_final,
-                formatear_moneda
-            )
-            st.success("¡Pedido enviado correctamente!")
-            st.balloons()
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("🗑 Vaciar carrito", use_container_width=True):
             st.session_state.carrito = {}
-            time.sleep(2)
-            st.session_state.vista = 'inicio'
             st.rerun()
+    with col2:
+        if st.button("🚀 CONFIRMAR Y ENVIAR", use_container_width=True, type="primary"):
+            if metodo_entrega == "Delivery" and (not direccion or direccion == "Retiro en Local"):
+                st.error("Por favor, ingresá una dirección válida")
+                return
+            
+            if st.session_state.user_dni and st.session_state.user_name:
+                if pedido_manager.registrar_pedido(
+                    st.session_state.user_dni,
+                    st.session_state.user_name,
+                    detalle_para_envio,
+                    total_final,
+                    direccion
+                ):
+                    pedido_manager.enviar_notificacion(
+                        st.session_state.user_name,
+                        st.session_state.user_dni,
+                        direccion,
+                        detalle_para_envio,
+                        total_final,
+                        formatear_moneda
+                    )
+                    st.success("¡Pedido enviado correctamente!")
+                    st.balloons()
+                    st.session_state.carrito = {}
+                    time.sleep(2)
+                    st.session_state.vista = 'inicio'
+                    st.rerun()
 
 def login_admin():
     st.subheader("🔐 Panel de Administración")
@@ -324,7 +400,6 @@ def panel_admin():
     
     st.markdown("---")
     
-    # Pestañas del panel de admin
     tabs = st.tabs(["📊 Dashboard", "📋 Pedidos", "⚙️ Configuración"])
     
     with tabs[0]:
@@ -357,7 +432,6 @@ def panel_admin():
     
     st.markdown("---")
     
-    # Botón de cerrar sesión - VUELVE AL INICIO
     if st.button("🚪 Cerrar sesión", use_container_width=True):
         cerrar_sesion_admin()
 
@@ -381,14 +455,12 @@ def vista_inicio():
         st.write(f"**🚚 Costo de envío:** {formatear_moneda(costo_delivery)}")
 
 def vista_pedir():
-    # Botón volver
     if st.button("⬅ Volver al inicio"):
         st.session_state.vista = 'inicio'
         st.rerun()
     
     mostrar_header()
     
-    # Validar datos del usuario
     if st.session_state.user_dni is None:
         with st.container(border=True):
             st.subheader("📝 Tus datos")
@@ -404,11 +476,9 @@ def vista_pedir():
                     st.error("Por favor completá todos los datos")
         st.stop()
     
-    # Mostrar productos y carrito
     mostrar_productos()
     mostrar_carrito()
     
-    # Footer
     st.markdown("---")
     st.markdown(
         f"<div class='footer'>"
@@ -421,13 +491,11 @@ def vista_pedir():
 def main():
     conf_actual = cargar_config()
     
-    # Verificar modo mantenimiento
     if conf_actual.get('modo_mantenimiento', False):
         st.warning("🔧 El local está en mantenimiento. Volvemos pronto.")
         st.info(f"📞 Contacto: {conf_actual.get('telefono', 'Consultar')}")
         return
     
-    # Navegación
     if st.session_state.vista == 'inicio':
         vista_inicio()
     elif st.session_state.vista == 'pedir':
