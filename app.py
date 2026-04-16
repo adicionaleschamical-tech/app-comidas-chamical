@@ -108,11 +108,26 @@ def mostrar_carrito():
                 st.rerun()
 
 def login_admin():
-    """Pantalla de login - SIN mostrar datos sensibles"""
+    """Pantalla de login - VERSIÓN DIAGNÓSTICO COMPLETA"""
     st.subheader("🔐 Panel de Administración")
     
     # Recargar configuración
     conf_actual = cargar_config()
+    
+    # === DIAGNÓSTICO: Mostrar qué está leyendo ===
+    with st.expander("🔍 DIAGNÓSTICO - Valores leídos del Google Sheet"):
+        st.write("**Estos son los valores que el sistema está leyendo:**")
+        st.write(f"**Admin_DNI:** '{conf_actual.get('admin_dni', 'NO ENCONTRADO')}'")
+        st.write(f"**Admin_Pass:** '{conf_actual.get('admin_pass', 'NO ENCONTRADO')}'")
+        st.write(f"**User:** '{conf_actual.get('user', 'NO ENCONTRADO')}'")
+        st.write(f"**User_Pass:** '{conf_actual.get('user_pass', 'NO ENCONTRADO')}'")
+        st.write("---")
+        st.write("**Longitud de los valores:**")
+        st.write(f"Longitud Admin_DNI: {len(conf_actual.get('admin_dni', ''))}")
+        st.write(f"Longitud Admin_Pass: {len(conf_actual.get('admin_pass', ''))}")
+        st.write("---")
+        st.write("**Todas las claves disponibles en la configuración:**")
+        st.write(list(conf_actual.keys()))
     
     col1, col2 = st.columns([1, 2])
     with col1:
@@ -124,35 +139,54 @@ def login_admin():
         usuario = st.text_input("DNI o Usuario")
         password = st.text_input("Contraseña", type="password")
         
-        # Limpiar espacios en blanco
-        usuario_limpio = usuario.strip() if usuario else ""
-        password_limpia = password.strip() if password else ""
-        
-        # Obtener valores del sheet y limpiarlos también
-        admin_dni_limpio = str(conf_actual.get('admin_dni', '')).strip()
-        admin_pass_limpio = str(conf_actual.get('admin_pass', '')).strip()
-        user_limpio = str(conf_actual.get('user', '')).strip()
-        user_pass_limpio = str(conf_actual.get('user_pass', '')).strip()
-        
         if st.button("Ingresar", type="primary", use_container_width=True):
-            # Verificar si es ADMIN (por DNI)
+            # Limpiar espacios en blanco
+            usuario_limpio = usuario.strip() if usuario else ""
+            password_limpia = password.strip() if password else ""
+            
+            # Obtener valores del sheet y limpiarlos
+            admin_dni_limpio = str(conf_actual.get('admin_dni', '')).strip()
+            admin_pass_limpio = str(conf_actual.get('admin_pass', '')).strip()
+            user_limpio = str(conf_actual.get('user', '')).strip()
+            user_pass_limpio = str(conf_actual.get('user_pass', '')).strip()
+            
+            # Mostrar comparación en diagnóstico
+            st.write("---")
+            st.write("**🔍 Comparación de valores:**")
+            st.write(f"Usuario ingresado (limpio): '{usuario_limpio}'")
+            st.write(f"Admin_DNI del sheet (limpio): '{admin_dni_limpio}'")
+            st.write(f"¿Coinciden? {usuario_limpio == admin_dni_limpio}")
+            st.write(f"Password ingresada (limpia): '{password_limpia}'")
+            st.write(f"Admin_Pass del sheet (limpio): '{admin_pass_limpio}'")
+            st.write(f"¿Coinciden? {password_limpia == admin_pass_limpio}")
+            
+            # Verificar si es ADMIN
             if usuario_limpio == admin_dni_limpio and password_limpia == admin_pass_limpio:
+                st.success("✅ ACCESO ADMINISTRADOR CONCEDIDO")
                 st.session_state.admin_logged = True
                 st.session_state.admin_tipo = "admin"
-                st.success("✅ Acceso como ADMINISTRADOR")
-                time.sleep(1)
+                time.sleep(2)
                 st.rerun()
             
             # Verificar si es USUARIO COMUN
             elif usuario_limpio == user_limpio and password_limpia == user_pass_limpio:
+                st.success("✅ ACCESO USUARIO CONCEDIDO")
                 st.session_state.admin_logged = True
                 st.session_state.admin_tipo = "user"
-                st.success("✅ Acceso como USUARIO")
-                time.sleep(1)
+                time.sleep(2)
                 st.rerun()
             
             else:
                 st.error("❌ DNI/Usuario o contraseña incorrectos")
+                
+                # Sugerencias
+                st.info("💡 **Posibles soluciones:**")
+                st.markdown("""
+                1. Verifica que los nombres en Google Sheet sean exactamente: `Admin_DNI`, `Admin_Pass`, `User`, `User_Pass`
+                2. Asegúrate que no haya espacios en blanco en los valores
+                3. Revisa que el GID_CONFIG en secrets.toml sea correcto
+                4. La hoja de configuración debe tener los datos en las columnas A y B
+                """)
 
 def panel_admin():
     """Panel de administración - Con diferentes privilegios"""
@@ -183,7 +217,6 @@ def panel_admin():
     
     # Diferentes pestañas según privilegios
     if tipo_usuario == "admin":
-        # ADMIN ve todas las pestañas
         tabs = st.tabs(["📈 Dashboard", "📋 Todos los Pedidos", "⚙️ Configuración", "ℹ️ Ayuda"])
         
         with tabs[0]:
@@ -206,7 +239,7 @@ def panel_admin():
                 else:
                     st.info("No hay pedidos registrados aún")
             except Exception as e:
-                st.info(f"No se pudieron cargar los pedidos")
+                st.info("No se pudieron cargar los pedidos")
         
         with tabs[2]:
             st.subheader("Configuración del negocio")
@@ -234,7 +267,6 @@ def panel_admin():
             """)
     
     else:
-        # USUARIO COMUN ve solo información básica
         tabs = st.tabs(["📋 Mis Pedidos", "ℹ️ Información"])
         
         with tabs[0]:
@@ -243,7 +275,6 @@ def panel_admin():
                 df_pedidos = pd.read_csv(f"{URL_PEDIDOS_BASE}&cb={int(time.time())}")
                 if not df_pedidos.empty:
                     df_pedidos.columns = [c.strip().upper() for c in df_pedidos.columns]
-                    # Filtrar pedidos del usuario actual
                     dni_usuario = conf_actual.get('user')
                     if 'DNI' in df_pedidos.columns and dni_usuario:
                         pedidos_usuario = df_pedidos[df_pedidos['DNI'].astype(str) == str(dni_usuario)]
@@ -256,7 +287,7 @@ def panel_admin():
                 else:
                     st.info("No hay pedidos registrados aún")
             except Exception as e:
-                st.info(f"No se pudieron cargar tus pedidos")
+                st.info("No se pudieron cargar tus pedidos")
         
         with tabs[1]:
             st.markdown("""
@@ -265,21 +296,16 @@ def panel_admin():
             Como usuario común puedes:
             - ✅ Ver tus propios pedidos
             - ✅ Hacer nuevos pedidos desde el menú principal
-            
-            ### 📞 Contacto:
             """)
             if conf_actual.get('telefono'):
                 st.write(f"**Teléfono:** {conf_actual['telefono']}")
             if conf_actual.get('whatsapp'):
                 st.write(f"**WhatsApp:** {conf_actual['whatsapp']}")
-            if conf_actual.get('direccion_local'):
-                st.write(f"**Dirección:** {conf_actual['direccion_local']}")
 
 def vista_inicio():
     """Pantalla de inicio"""
     mostrar_header()
     
-    # Botón de admin
     col1, col2, col3 = st.columns([1, 2, 1])
     with col3:
         if st.button("⚙️ Admin", help="Panel de administración"):
@@ -362,7 +388,6 @@ def vista_pedir():
     with col2:
         mostrar_header()
     
-    # Validar datos del usuario
     if 'user_dni' not in st.session_state:
         with st.container(border=True):
             st.subheader("📝 Tus datos")
@@ -384,13 +409,9 @@ def vista_pedir():
                         st.error(msg)
         st.stop()
     
-    # Mostrar productos
     mostrar_productos()
-    
-    # Mostrar carrito
     mostrar_carrito()
     
-    # Footer
     st.markdown("---")
     st.markdown(
         f"<div class='footer'>"
@@ -404,14 +425,12 @@ def main():
     """Punto de entrada principal"""
     conf_actual = cargar_config()
     
-    # Verificar modo mantenimiento
     if conf_actual.get('modo_mantenimiento', False):
         st.warning("🔧 El local está en mantenimiento. Volvemos pronto.")
         st.image("https://cdn-icons-png.flaticon.com/512/7486/7486899.png", width=200)
         st.info(f"📞 Contacto: {conf_actual.get('telefono', 'Consultar')}")
         return
     
-    # Navegación
     if st.session_state.vista == 'inicio':
         vista_inicio()
     elif st.session_state.vista == 'rastreo':
