@@ -21,13 +21,13 @@ GID_PEDIDOS = "1395505058"
 TELEGRAM_TOKEN = "8793126374:AAG5zIBWrUOq50Ku0zjXEe8joD_JlcCDURI"
 TELEGRAM_CHAT_ID = "7860013984"
 
-# URLS - ACTUALIZA ESTA CON LA URL CORRECTA
+# URLs
 URL_PRODUCTOS = f"https://docs.google.com/spreadsheets/d/{ID_SHEET}/export?format=csv&gid={GID_PRODUCTOS}"
 URL_CONFIG = f"https://docs.google.com/spreadsheets/d/{ID_SHEET}/export?format=csv&gid={GID_CONFIG}"
 URL_PEDIDOS_BASE = f"https://docs.google.com/spreadsheets/d/{ID_SHEET}/export?format=csv&gid={GID_PEDIDOS}"
 
-# ⚠️ IMPORTANTE: Cambia esta URL por la que funciona
-URL_APPS_SCRIPT = "https://script.google.com/macros/s/AKfycbw_CiIllL__hJY3NUspTuX2op1OOJm-i3d2fZ0RVJHl/dev"
+# ✅ URL CORRECTA del Apps Script (la que funciona)
+URL_APPS_SCRIPT = "https://script.google.com/macros/s/AKfycbzmI5KStpwjH2VbSV9SQtQprOlJ__tEOyZD7mDuI8F7lVrMyMhDZHP6Y8m2n36wgmPO3A/exec"
 
 # ==================== FUNCIONES ====================
 def limpiar_precio(texto):
@@ -125,8 +125,6 @@ class PedidoManager:
     
     def registrar_pedido(self, dni, nombre, detalle, total, direccion):
         try:
-            st.write("### 🔍 DIAGNÓSTICO - Enviando pedido")
-            
             params = {
                 "accion": "nuevo",
                 "tel": dni,
@@ -135,26 +133,10 @@ class PedidoManager:
                 "total": total,
                 "dir": direccion
             }
-            
-            st.write(f"**URL que se usa:** `{self.url_apps_script}`")
-            st.write(f"**Parámetros enviados:**")
-            st.json(params)
-            
             response = requests.get(self.url_apps_script, params=params, timeout=10)
-            
-            st.write(f"**Código de respuesta HTTP:** {response.status_code}")
-            st.write(f"**Respuesta del servidor:** `{response.text}`")
-            st.write(f"**Longitud de la respuesta:** {len(response.text)} caracteres")
-            
-            if response.status_code == 200 and response.text == "OK":
-                st.success("✅ Pedido guardado correctamente")
-                return True
-            else:
-                st.error(f"❌ Error: Código {response.status_code}, Respuesta: '{response.text}'")
-                return False
-                
+            return response.text == "OK"
         except Exception as e:
-            st.error(f"❌ Error inesperado: {type(e).__name__}: {e}")
+            logger.error(f"Error registrando pedido: {e}")
             return False
     
     def enviar_notificacion(self, nombre, dni, direccion, detalle, total, formatear_func):
@@ -475,7 +457,7 @@ def mostrar_carrito():
                     st.session_state.vista = 'inicio'
                     st.rerun()
                 else:
-                    st.error("Error al guardar el pedido. Revisa el diagnóstico arriba.")
+                    st.error("Error al guardar el pedido. Intenta nuevamente.")
             else:
                 st.error("Error: No se encontraron los datos del usuario")
 
