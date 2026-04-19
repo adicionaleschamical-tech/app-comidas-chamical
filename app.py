@@ -27,7 +27,7 @@ URL_CONFIG = f"https://docs.google.com/spreadsheets/d/{ID_SHEET}/export?format=c
 URL_PEDIDOS_BASE = f"https://docs.google.com/spreadsheets/d/{ID_SHEET}/export?format=csv&gid={GID_PEDIDOS}"
 
 # ✅ URL CORRECTA del Apps Script (la que funciona)
-URL_APPS_SCRIPT = "https://script.google.com/macros/s/AKfycbzmI5KStpwjH2VbSV9SQtQprOlJ__tEOyZD7mDuI8F7lVrMyMhDZHP6Y8m2n36wgmPO3A/exec"
+URL_APPS_SCRIPT = "https://script.google.com/macros/s/AKfycbxQtSBvziq1hfMcC7V9dMUEtFvkq8ngc-somrA0SjR90Qrtn2iKDB2rTGNFRMk72Jnv0Q/exec"
 
 # ==================== FUNCIONES ====================
 def limpiar_precio(texto):
