@@ -123,15 +123,32 @@ def cargar_config():
 
 @st.cache_data(ttl=60)
 def cargar_productos():
-    """Carga productos desde Google Sheets"""
+    """Carga productos desde Google Sheets con diagnóstico"""
     try:
+        # Para diagnóstico
+        st.write(f"**🔍 URL de productos:** {URL_PRODUCTOS}")
+        
         resp_p = requests.get(f"{URL_PRODUCTOS}&cb={int(time.time())}", timeout=10)
+        
+        st.write(f"**📊 Código de respuesta HTTP:** {resp_p.status_code}")
+        
         resp_p.raise_for_status()
         resp_p.encoding = 'utf-8'
-        df_p = pd.read_csv(StringIO(resp_p.text), encoding='utf-8')
+        
+        # Mostrar primeras líneas del CSV
+        contenido = resp_p.text
+        st.write(f"**📝 Primeras 500 caracteres del CSV:**")
+        st.code(contenido[:500])
+        
+        df_p = pd.read_csv(StringIO(contenido), encoding='utf-8')
         df_p.columns = [c.strip().lower() for c in df_p.columns]
+        
+        st.success(f"✅ Productos cargados correctamente: {len(df_p)} filas")
+        st.write(f"**📋 Columnas encontradas:** {list(df_p.columns)}")
+        
         return df_p
     except Exception as e:
+        st.error(f"❌ Error específico al cargar productos: {e}")
         logger.error(f"Error cargando productos: {e}")
         return pd.DataFrame()
 
