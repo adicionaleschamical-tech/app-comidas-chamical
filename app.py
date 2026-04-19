@@ -13,44 +13,33 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # ==================== CONFIGURACIÓN ====================
-# IDs de Google Sheets
 ID_SHEET = "1WcVWos3p9NJKKEpY2L1-gmKhEkZJH1FL8Hy5bNqHyRA"
 GID_CONFIG = "612320365"
 GID_PRODUCTOS = "0"
 GID_PEDIDOS = "1395505058"
 
-# Tokens de Telegram
 TELEGRAM_TOKEN = "8793126374:AAG5zIBWrUOq50Ku0zjXEe8joD_JlcCDURI"
 TELEGRAM_CHAT_ID = "7860013984"
 
-# URLs de exportación directa
+# URLS - ACTUALIZA ESTA CON LA URL CORRECTA
 URL_PRODUCTOS = f"https://docs.google.com/spreadsheets/d/{ID_SHEET}/export?format=csv&gid={GID_PRODUCTOS}"
 URL_CONFIG = f"https://docs.google.com/spreadsheets/d/{ID_SHEET}/export?format=csv&gid={GID_CONFIG}"
 URL_PEDIDOS_BASE = f"https://docs.google.com/spreadsheets/d/{ID_SHEET}/export?format=csv&gid={GID_PEDIDOS}"
 
-# URL del Apps Script (webhook)
+# ⚠️ IMPORTANTE: Cambia esta URL por la que funciona
 URL_APPS_SCRIPT = "https://script.google.com/macros/s/AKfycbw_CiIllL__hJY3NUspTuX2op1OOJm-i3d2fZ0RVJHl/dev"
 
-# ==================== FUNCIONES DE APOYO ====================
+# ==================== FUNCIONES ====================
 def limpiar_precio(texto):
-    """Limpia formato de precio - EVITA CONCATENACIÓN"""
     if pd.isna(texto) or str(texto).strip() == "":
         return 0
-    
     texto_str = str(texto).strip()
-    
-    # Si ya es un número, devolverlo directamente
     if texto_str.isdigit():
         return int(texto_str)
-    
-    # Buscar números en el texto
     numeros = re.findall(r'\d+', texto_str)
-    
     if numeros:
-        # Tomar el número más largo (el verdadero precio)
         numeros_ordenados = sorted(numeros, key=len, reverse=True)
         return int(numeros_ordenados[0])
-    
     return 0
 
 def formatear_moneda(valor):
@@ -61,12 +50,9 @@ def formatear_moneda(valor):
 
 @st.cache_data(ttl=300)
 def cargar_config():
-    """Carga configuración del negocio desde Google Sheets"""
     try:
         resp = requests.get(f"{URL_CONFIG}&cb={int(time.time())}", timeout=10)
         resp.raise_for_status()
-        
-        # Forzar codificación UTF-8
         resp.encoding = 'utf-8'
         df = pd.read_csv(StringIO(resp.text), header=None, encoding='utf-8')
         
@@ -77,7 +63,6 @@ def cargar_config():
                 value = str(row[1]).strip() if pd.notna(row[1]) else ""
                 config[key] = value
         
-        # Obtener icono y limpiar si está corrupto
         icono_raw = config.get('icono', '🍔')
         if 'ð' in icono_raw or 'Ÿ' in icono_raw or 'Ã' in icono_raw or len(icono_raw) > 2:
             icono_raw = '🍔'
@@ -101,7 +86,6 @@ def cargar_config():
             'background_color': config.get('Background_Color', '#FFF8F0'),
         }
     except Exception as e:
-        logger.error(f"Error cargando configuración: {e}")
         return {
             'nombre_local': 'HAMBUR LOCOS',
             'costo_delivery': 500,
@@ -122,7 +106,6 @@ def cargar_config():
 
 @st.cache_data(ttl=60)
 def cargar_productos():
-    """Carga productos desde Google Sheets"""
     try:
         resp_p = requests.get(f"{URL_PRODUCTOS}&cb={int(time.time())}", timeout=10)
         resp_p.raise_for_status()
@@ -131,7 +114,6 @@ def cargar_productos():
         df_p.columns = [c.strip().lower() for c in df_p.columns]
         return df_p
     except Exception as e:
-        logger.error(f"Error cargando productos: {e}")
         return pd.DataFrame()
 
 # ==================== PEDIDO MANAGER ====================
@@ -143,6 +125,8 @@ class PedidoManager:
     
     def registrar_pedido(self, dni, nombre, detalle, total, direccion):
         try:
+            st.write("### 🔍 DIAGNÓSTICO - Enviando pedido")
+            
             params = {
                 "accion": "nuevo",
                 "tel": dni,
@@ -151,15 +135,30 @@ class PedidoManager:
                 "total": total,
                 "dir": direccion
             }
+            
+            st.write(f"**URL que se usa:** `{self.url_apps_script}`")
+            st.write(f"**Parámetros enviados:**")
+            st.json(params)
+            
             response = requests.get(self.url_apps_script, params=params, timeout=10)
-            return response.text == "OK"
+            
+            st.write(f"**Código de respuesta HTTP:** {response.status_code}")
+            st.write(f"**Respuesta del servidor:** `{response.text}`")
+            st.write(f"**Longitud de la respuesta:** {len(response.text)} caracteres")
+            
+            if response.status_code == 200 and response.text == "OK":
+                st.success("✅ Pedido guardado correctamente")
+                return True
+            else:
+                st.error(f"❌ Error: Código {response.status_code}, Respuesta: '{response.text}'")
+                return False
+                
         except Exception as e:
-            logger.error(f"Error registrando pedido: {e}")
+            st.error(f"❌ Error inesperado: {type(e).__name__}: {e}")
             return False
     
     def enviar_notificacion(self, nombre, dni, direccion, detalle, total, formatear_func):
         try:
-            # Limpiar DNI (solo números)
             dni_limpio = re.sub(r'[^\d]', '', str(dni))
             
             keyboard = {
@@ -248,15 +247,11 @@ def mostrar_header():
         st.caption(f"📱 {config['telefono']}")
 
 def mostrar_productos():
-    """Muestra productos con variedades como tabs separados"""
-    
     df = cargar_productos()
-    
     if df.empty:
-        st.error("❌ No se pudieron cargar productos. Verifica la conexión con Google Sheets.")
+        st.error("❌ No se pudieron cargar productos.")
         return
     
-    # Filtrar productos disponibles
     if 'disponible' in df.columns:
         disponibles = df[df['disponible'].str.upper() == 'SI']
     else:
@@ -266,7 +261,6 @@ def mostrar_productos():
         st.warning("No hay productos disponibles")
         return
     
-    # Mostrar productos
     for idx, row in disponibles.iterrows():
         with st.container(border=True):
             col1, col2 = st.columns([1, 2])
@@ -285,21 +279,17 @@ def mostrar_productos():
                 nombre_producto = str(row.get('producto', 'Producto'))
                 st.subheader(nombre_producto)
                 
-                # Obtener variedades, ingredientes y precios
                 variedades_raw = row.get('variedades', 'Única')
                 ingredientes_raw = row.get('ingredientes', '')
                 precios_raw = row.get('precio', '0')
                 
-                # Separar por punto y coma y limpiar espacios
                 variedades = [v.strip() for v in str(variedades_raw).split(';')]
                 
-                # Manejar ingredientes
                 if pd.notna(ingredientes_raw) and str(ingredientes_raw).strip():
                     ingredientes = [i.strip() for i in str(ingredientes_raw).split(';')]
                 else:
                     ingredientes = [""] * len(variedades)
                 
-                # Manejar precios
                 precios_raw_list = [p.strip() for p in str(precios_raw).split(';')]
                 precios = []
                 for p in precios_raw_list:
@@ -308,13 +298,11 @@ def mostrar_productos():
                     else:
                         precios.append(0)
                 
-                # Asegurar longitudes iguales
                 while len(ingredientes) < len(variedades):
                     ingredientes.append("")
                 while len(precios) < len(variedades):
                     precios.append(0)
                 
-                # Si hay más de una variedad, mostrar como tabs
                 if len(variedades) > 1:
                     tabs = st.tabs(variedades)
                     for i, tab in enumerate(tabs):
@@ -355,7 +343,6 @@ def mostrar_productos():
                                         }
                                     st.rerun()
                 else:
-                    # Una sola variedad
                     if ingredientes[0] and ingredientes[0] != "":
                         st.info(f"✨ {ingredientes[0]}")
                     
@@ -396,7 +383,6 @@ pedido_manager = PedidoManager()
 conf = cargar_config()
 costo_delivery = conf.get('costo_delivery', 500)
 
-# Inicializar session state
 if 'vista' not in st.session_state:
     st.session_state.vista = 'inicio'
 if 'carrito' not in st.session_state:
@@ -489,7 +475,7 @@ def mostrar_carrito():
                     st.session_state.vista = 'inicio'
                     st.rerun()
                 else:
-                    st.error("Error al guardar el pedido. Intenta nuevamente.")
+                    st.error("Error al guardar el pedido. Revisa el diagnóstico arriba.")
             else:
                 st.error("Error: No se encontraron los datos del usuario")
 
