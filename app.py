@@ -8,6 +8,7 @@ import logging
 from datetime import datetime
 import json
 
+# Importar desde config
 from config import (
     cargar_config, limpiar_precio, formatear_moneda,
     cargar_productos, URL_PEDIDOS_BASE
@@ -342,7 +343,7 @@ if 'user_name' not in st.session_state:
 if 'user_dni' not in st.session_state:
     st.session_state.user_dni = None
 if 'modo_diagnostico' not in st.session_state:
-    st.session_state.modo_diagnostico = True  # Activado por defecto
+    st.session_state.modo_diagnostico = True
 
 def cerrar_sesion_admin():
     st.session_state.admin_logged = False
@@ -569,14 +570,12 @@ def vista_inicio():
             st.write(f"**💬 WhatsApp:** {conf['whatsapp']}")
         st.write(f"**🚚 Costo de envío:** {formatear_moneda(costo_delivery)}")
     
-    # Botón para desactivar diagnóstico
     if st.session_state.modo_diagnostico:
         if st.button("🔧 Desactivar modo diagnóstico", use_container_width=True):
             st.session_state.modo_diagnostico = False
             st.rerun()
 
 def vista_rastreo():
-    """Pantalla de rastreo de pedidos"""
     st.subheader("🔍 Estado de tu pedido")
     
     if st.button("⬅ Volver al inicio", use_container_width=True):
