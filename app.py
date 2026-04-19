@@ -29,7 +29,7 @@ URL_CONFIG = f"https://docs.google.com/spreadsheets/d/{ID_SHEET}/export?format=c
 URL_PEDIDOS_BASE = f"https://docs.google.com/spreadsheets/d/{ID_SHEET}/export?format=csv&gid={GID_PEDIDOS}"
 
 # URL del Apps Script (webhook)
-URL_APPS_SCRIPT = "https://script.google.com/macros/s/AKfycbxJ5Hhamf1FUzNRina6oKfgqxMoEbf0eyOoC3AWp3r4tapFNF54KygyXRP6txuxZASdkA/exec"
+URL_APPS_SCRIPT = "https://script.google.com/macros/s/AKfycbw_CiIllL__hJY3NUspTuX2op1OOJm-i3d2fZ0RVJHl/dev"
 
 # ==================== FUNCIONES DE APOYO ====================
 def limpiar_precio(texto):
