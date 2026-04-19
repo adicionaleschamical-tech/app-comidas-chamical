@@ -11,7 +11,7 @@ import json
 # Importar desde config
 from config import (
     cargar_config, limpiar_precio, formatear_moneda,
-    cargar_productos, URL_PEDIDOS_BASE
+    cargar_productos, URL_PEDIDOS_BASE, ID_SHEET, GID_PRODUCTOS
 )
 
 # Configuración
@@ -145,12 +145,22 @@ def mostrar_productos():
     with st.expander("🔍 DIAGNÓSTICO - Ver datos cargados", expanded=True):
         st.markdown('<div class="diagnostico-box">', unsafe_allow_html=True)
         
+        # Mostrar configuración actual
+        st.write(f"**📌 ID_SHEET:** {ID_SHEET}")
+        st.write(f"**📌 GID_PRODUCTOS:** {GID_PRODUCTOS}")
+        st.write(f"**📌 URL completa:** https://docs.google.com/spreadsheets/d/{ID_SHEET}/export?format=csv&gid={GID_PRODUCTOS}")
+        
         df = cargar_productos()
         
         if df.empty:
             st.error("❌ No se pudieron cargar productos. Verifica la conexión con Google Sheets.")
-            st.info("Revisa que el GID_PRODUCTOS en secrets.toml sea correcto")
-            return
+            st.info("💡 Posibles soluciones:")
+            st.markdown("""
+            1. Verifica que el GID_PRODUCTOS sea correcto (debe ser '0' para la primera hoja)
+            2. Asegúrate que el archivo sea público o esté compartido
+            3. Revisa que la hoja se llame 'PRODUCTOS' o tenga el formato correcto
+            """)
+            st.stop()
         
         st.write(f"**📊 Total de filas cargadas:** {len(df)}")
         st.write(f"**📋 Columnas encontradas:** {list(df.columns)}")
@@ -160,6 +170,7 @@ def mostrar_productos():
         for col in columnas_necesarias:
             if col not in df.columns:
                 st.error(f"❌ Falta la columna '{col}' en tu Google Sheets")
+                st.info(f"Columnas actuales: {list(df.columns)}")
                 st.stop()
         
         # Mostrar los primeros productos
