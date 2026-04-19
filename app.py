@@ -8,18 +8,131 @@ import logging
 from datetime import datetime
 import json
 
-# Importar desde config
-from config import (
-    cargar_config, limpiar_precio, formatear_moneda,
-    cargar_productos, URL_PEDIDOS_BASE, ID_SHEET, GID_PRODUCTOS,
-    TELEGRAM_TOKEN, TELEGRAM_CHAT_ID, URL_APPS_SCRIPT
-)
-
 # Configuración
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# ==================== FUNCIONES DE TELEGRAM ====================
+# ==================== CONFIGURACIÓN ====================
+# IDs de Google Sheets
+ID_SHEET = "1WcVWos3p9NJKKEpY2L1-gmKhEkZJH1FL8Hy5bNqHyRA"
+GID_CONFIG = "612320365"
+GID_PRODUCTOS = "0"
+GID_PEDIDOS = "1395505058"
+
+# Tokens de Telegram
+TELEGRAM_TOKEN = "8793126374:AAG5zIBWrUOq50Ku0zjXEe8joD_JlcCDURI"
+TELEGRAM_CHAT_ID = "7860013984"
+
+# URLs de exportación directa
+URL_PRODUCTOS = f"https://docs.google.com/spreadsheets/d/{ID_SHEET}/export?format=csv&gid={GID_PRODUCTOS}"
+URL_CONFIG = f"https://docs.google.com/spreadsheets/d/{ID_SHEET}/export?format=csv&gid={GID_CONFIG}"
+URL_PEDIDOS_BASE = f"https://docs.google.com/spreadsheets/d/{ID_SHEET}/export?format=csv&gid={GID_PEDIDOS}"
+URL_APPS_SCRIPT = "https://script.google.com/macros/s/AKfycbw_CiIllL__hJY3NUspTuX2op1OOJm-i3d2fZ0RVJHl/dev"
+
+# ==================== FUNCIONES DE APOYO ====================
+def limpiar_precio(texto):
+    """Limpia formato de precio - EVITA CONCATENACIÓN"""
+    if pd.isna(texto) or str(texto).strip() == "":
+        return 0
+    
+    texto_str = str(texto).strip()
+    
+    # Si ya es un número, devolverlo directamente
+    if texto_str.isdigit():
+        return int(texto_str)
+    
+    # Buscar números en el texto
+    numeros = re.findall(r'\d+', texto_str)
+    
+    if numeros:
+        # Tomar el número más largo (el verdadero precio)
+        numeros_ordenados = sorted(numeros, key=len, reverse=True)
+        return int(numeros_ordenados[0])
+    
+    return 0
+
+def formatear_moneda(valor):
+    try:
+        return f"$ {int(valor):,}".replace(",", ".")
+    except:
+        return f"$ 0"
+
+@st.cache_data(ttl=300)
+def cargar_config():
+    """Carga configuración del negocio desde Google Sheets"""
+    try:
+        resp = requests.get(f"{URL_CONFIG}&cb={int(time.time())}", timeout=10)
+        resp.raise_for_status()
+        
+        # Forzar codificación UTF-8
+        resp.encoding = 'utf-8'
+        df = pd.read_csv(StringIO(resp.text), header=None, encoding='utf-8')
+        
+        config = {}
+        for _, row in df.iterrows():
+            if pd.notna(row[0]):
+                key = str(row[0]).strip()
+                value = str(row[1]).strip() if pd.notna(row[1]) else ""
+                config[key] = value
+        
+        # Obtener icono y limpiar si está corrupto
+        icono_raw = config.get('icono', '🍔')
+        if 'ð' in icono_raw or 'Ÿ' in icono_raw or 'Ã' in icono_raw or len(icono_raw) > 2:
+            icono_raw = '🍔'
+        
+        return {
+            'nombre_local': config.get('Nombre_Local', 'HAMBUR LOCOS'),
+            'logo_url': config.get('Logo_URL', ''),
+            'direccion_local': config.get('Direccion_Local', 'AVDA. SAN FRANCISCO KM 4 1/2'),
+            'costo_delivery': limpiar_precio(config.get('Costo_Delivery', 500)),
+            'telefono': config.get('Telefono', '3826430724'),
+            'admin_dni': config.get('Admin_DNI', '30588807'),
+            'admin_pass': config.get('Admin_Pass', '124578'),
+            'user': config.get('User', 'usuario'),
+            'user_pass': config.get('User_Pass', 'usuario123'),
+            'modo_mantenimiento': config.get('MODO_MANTENIMIENTO', 'NO').upper() == 'SI',
+            'tema_primario': config.get('Tema_Primario', '#FF6B35'),
+            'tema_secundario': config.get('Tema_Secundario', '#FF6B35'),
+            'horario': config.get('Horario', 'Lun-Dom 19:00 a 00:30'),
+            'whatsapp': config.get('WhatsApp', '3826430724'),
+            'icono': icono_raw,
+            'background_color': config.get('Background_Color', '#FFF8F0'),
+        }
+    except Exception as e:
+        logger.error(f"Error cargando configuración: {e}")
+        return {
+            'nombre_local': 'HAMBUR LOCOS',
+            'costo_delivery': 500,
+            'admin_dni': '30588807',
+            'admin_pass': '124578',
+            'user': 'usuario',
+            'user_pass': 'usuario123',
+            'telefono': '3826430724',
+            'direccion_local': 'AVDA. SAN FRANCISCO KM 4 1/2',
+            'modo_mantenimiento': False,
+            'tema_primario': '#FF6B35',
+            'tema_secundario': '#FF6B35',
+            'horario': 'Lun-Dom 19:00 a 00:30',
+            'whatsapp': '3826430724',
+            'icono': '🍔',
+            'background_color': '#FFF8F0',
+        }
+
+@st.cache_data(ttl=60)
+def cargar_productos():
+    """Carga productos desde Google Sheets"""
+    try:
+        resp_p = requests.get(f"{URL_PRODUCTOS}&cb={int(time.time())}", timeout=10)
+        resp_p.raise_for_status()
+        resp_p.encoding = 'utf-8'
+        df_p = pd.read_csv(StringIO(resp_p.text), encoding='utf-8')
+        df_p.columns = [c.strip().lower() for c in df_p.columns]
+        return df_p
+    except Exception as e:
+        logger.error(f"Error cargando productos: {e}")
+        return pd.DataFrame()
+
+# ==================== PEDIDO MANAGER ====================
 class PedidoManager:
     def __init__(self):
         self.url_apps_script = URL_APPS_SCRIPT
@@ -37,6 +150,7 @@ class PedidoManager:
                 "dir": direccion
             }
             response = requests.get(self.url_apps_script, params=params, timeout=10)
+            logger.info(f"Pedido registrado: {response.status_code}")
             return True
         except Exception as e:
             logger.error(f"Error registrando pedido: {e}")
@@ -44,15 +158,18 @@ class PedidoManager:
     
     def enviar_notificacion(self, nombre, dni, direccion, detalle, total, formatear_func):
         try:
+            # Limpiar DNI (solo números)
+            dni_limpio = re.sub(r'[^\d]', '', str(dni))
+            
             keyboard = {
                 "inline_keyboard": [
                     [
-                        {"text": "✅ Aceptar (Preparando)", "callback_data": f"est_Preparando_{dni}"},
-                        {"text": "🛵 Enviar (En Camino)", "callback_data": f"est_Enviado_{dni}"}
+                        {"text": "✅ Aceptar (Preparando)", "callback_data": f"est_Preparando_{dni_limpio}"},
+                        {"text": "🛵 Enviar (En Camino)", "callback_data": f"est_Enviado_{dni_limpio}"}
                     ],
                     [
-                        {"text": "🏁 Completar (Listo)", "callback_data": f"est_Listo_{dni}"},
-                        {"text": "❌ Cancelar", "callback_data": f"est_Cancelado_{dni}"}
+                        {"text": "🏁 Completar (Listo)", "callback_data": f"est_Listo_{dni_limpio}"},
+                        {"text": "❌ Cancelar", "callback_data": f"est_Cancelado_{dni_limpio}"}
                     ]
                 ]
             }
@@ -60,7 +177,7 @@ class PedidoManager:
             msg = (
                 f"🔔 *NUEVO PEDIDO*\n\n"
                 f"👤 *Cliente:* {nombre}\n"
-                f"🆔 *DNI:* {dni}\n"
+                f"🆔 *DNI:* {dni_limpio}\n"
                 f"📍 *Dirección:* {direccion}\n\n"
                 f"*Detalle:*\n{detalle}\n\n"
                 f"💰 *TOTAL: {formatear_func(total)}*\n"
@@ -78,6 +195,7 @@ class PedidoManager:
                 },
                 timeout=10
             )
+            logger.info(f"Notificación enviada: {response.status_code}")
             return True
         except Exception as e:
             logger.error(f"Error en notificación: {e}")
@@ -113,12 +231,6 @@ def apply_custom_theme():
         }}
         .stProgress > div > div {{
             background-color: {primary} !important;
-        }}
-        .diagnostico-box {{
-            background-color: #f0f2f6;
-            padding: 15px;
-            border-radius: 10px;
-            margin: 10px 0;
         }}
     </style>
     """
