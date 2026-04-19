@@ -27,7 +27,7 @@ TELEGRAM_CHAT_ID = "7860013984"
 URL_PRODUCTOS = f"https://docs.google.com/spreadsheets/d/{ID_SHEET}/export?format=csv&gid={GID_PRODUCTOS}"
 URL_CONFIG = f"https://docs.google.com/spreadsheets/d/{ID_SHEET}/export?format=csv&gid={GID_CONFIG}"
 URL_PEDIDOS_BASE = f"https://docs.google.com/spreadsheets/d/{ID_SHEET}/export?format=csv&gid={GID_PEDIDOS}"
-URL_APPS_SCRIPT = "https://script.google.com/macros/s/AKfycbw_CiIllL__hJY3NUspTuX2op1OOJm-i3d2fZ0RVJHl/dev"
+URL_APPS_SCRIPT = "https://script.google.com/macros/s/TU_NUEVA_URL/exec"
 
 # ==================== FUNCIONES DE APOYO ====================
 def limpiar_precio(texto):
