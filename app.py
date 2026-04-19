@@ -28,8 +28,8 @@ URL_PRODUCTOS = f"https://docs.google.com/spreadsheets/d/{ID_SHEET}/export?forma
 URL_CONFIG = f"https://docs.google.com/spreadsheets/d/{ID_SHEET}/export?format=csv&gid={GID_CONFIG}"
 URL_PEDIDOS_BASE = f"https://docs.google.com/spreadsheets/d/{ID_SHEET}/export?format=csv&gid={GID_PEDIDOS}"
 
-# IMPORTANTE: Esta es la URL de tu Apps Script
-URL_APPS_SCRIPT = "https://script.google.com/macros/s/AKfycbw_CiIllL__hJY3NUspTuX2op1OOJm-i3d2fZ0RVJHl/dev"
+# URL del Apps Script (webhook)
+URL_APPS_SCRIPT = "https://script.google.com/macros/s/AKfycbxJ5Hhamf1FUzNRina6oKfgqxMoEbf0eyOoC3AWp3r4tapFNF54KygyXRP6txuxZASdkA/exec"
 
 # ==================== FUNCIONES DE APOYO ====================
 def limpiar_precio(texto):
@@ -143,10 +143,6 @@ class PedidoManager:
     
     def registrar_pedido(self, dni, nombre, detalle, total, direccion):
         try:
-            # Mostrar diagnóstico en la app
-            st.write("---")
-            st.write("### 🔍 Diagnóstico del pedido")
-            
             params = {
                 "accion": "nuevo",
                 "tel": dni,
@@ -155,27 +151,9 @@ class PedidoManager:
                 "total": total,
                 "dir": direccion
             }
-            
-            st.write("**📤 Parámetros enviados:**")
-            st.json(params)
-            
-            st.write(f"**🔗 URL del Apps Script:** {self.url_apps_script}")
-            
-            # Hacer la petición
             response = requests.get(self.url_apps_script, params=params, timeout=10)
-            
-            st.write(f"**📊 Código de respuesta HTTP:** {response.status_code}")
-            st.write(f"**📝 Respuesta del servidor:** {response.text}")
-            
-            if response.text == "OK":
-                st.success("✅ Pedido guardado correctamente en Google Sheets")
-                return True
-            else:
-                st.error(f"❌ Error del servidor: {response.text}")
-                return False
-                
+            return response.text == "OK"
         except Exception as e:
-            st.error(f"❌ Error de conexión: {e}")
             logger.error(f"Error registrando pedido: {e}")
             return False
     
@@ -218,12 +196,9 @@ class PedidoManager:
                 },
                 timeout=10
             )
-            logger.info(f"Notificación enviada: {response.status_code}")
-            st.write(f"**📨 Notificación Telegram:** {response.status_code}")
             return True
         except Exception as e:
             logger.error(f"Error en notificación: {e}")
-            st.error(f"❌ Error en notificación: {e}")
             return False
 
 # ==================== TEMAS ====================
@@ -257,12 +232,6 @@ def apply_custom_theme():
         .stProgress > div > div {{
             background-color: {primary} !important;
         }}
-        .diagnostico-box {{
-            background-color: #f0f2f6;
-            padding: 15px;
-            border-radius: 10px;
-            margin: 10px 0;
-        }}
     </style>
     """
     st.markdown(custom_css, unsafe_allow_html=True)
@@ -285,7 +254,6 @@ def mostrar_productos():
     
     if df.empty:
         st.error("❌ No se pudieron cargar productos. Verifica la conexión con Google Sheets.")
-        st.info("Asegúrate que el Sheet esté compartido como 'Cualquier persona con el enlace' → Lector")
         return
     
     # Filtrar productos disponibles
@@ -499,15 +467,6 @@ def mostrar_carrito():
                 return
             
             if st.session_state.user_dni and st.session_state.user_name:
-                # Mostrar diagnóstico
-                st.write("### 🔍 Enviando pedido...")
-                st.write(f"**DNI:** {st.session_state.user_dni}")
-                st.write(f"**Nombre:** {st.session_state.user_name}")
-                st.write(f"**Dirección:** {direccion}")
-                st.write(f"**Total:** {formatear_moneda(total_final)}")
-                st.write(f"**Detalle:** {detalle_para_envio}")
-                
-                # Registrar el pedido
                 if pedido_manager.registrar_pedido(
                     st.session_state.user_dni,
                     st.session_state.user_name,
@@ -530,7 +489,7 @@ def mostrar_carrito():
                     st.session_state.vista = 'inicio'
                     st.rerun()
                 else:
-                    st.error("Error al guardar el pedido. Revisa el diagnóstico arriba.")
+                    st.error("Error al guardar el pedido. Intenta nuevamente.")
             else:
                 st.error("Error: No se encontraron los datos del usuario")
 
