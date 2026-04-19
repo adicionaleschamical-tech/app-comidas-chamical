@@ -11,7 +11,8 @@ import json
 # Importar desde config
 from config import (
     cargar_config, limpiar_precio, formatear_moneda,
-    cargar_productos, URL_PEDIDOS_BASE, ID_SHEET, GID_PRODUCTOS
+    cargar_productos, URL_PEDIDOS_BASE, ID_SHEET, GID_PRODUCTOS,
+    TELEGRAM_TOKEN, TELEGRAM_CHAT_ID, URL_APPS_SCRIPT
 )
 
 # Configuración
@@ -19,10 +20,6 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # ==================== FUNCIONES DE TELEGRAM ====================
-TELEGRAM_TOKEN = "8793126374:AAG5zIBWrUOq50Ku0zjXEe8joD_JlcCDURI"
-TELEGRAM_CHAT_ID = "7860013984"
-URL_APPS_SCRIPT = "https://script.google.com/macros/s/AKfycbzl9dpOIAVs7U3sfiS8pJE__FqPUSj8rTAEPQeSJF6si6ADL8LK-SDdWD4KXrep5rlJPQ/exec"
-
 class PedidoManager:
     def __init__(self):
         self.url_apps_script = URL_APPS_SCRIPT
@@ -139,69 +136,24 @@ def mostrar_header():
         st.caption(f"📱 {config['telefono']}")
 
 def mostrar_productos():
-    """Muestra productos con diagnóstico para ver errores"""
+    """Muestra productos con variedades como tabs separados"""
     
-    # ========== DIAGNÓSTICO ==========
-    with st.expander("🔍 DIAGNÓSTICO - Ver datos cargados", expanded=True):
-        st.markdown('<div class="diagnostico-box">', unsafe_allow_html=True)
-        
-        # Mostrar configuración actual
-        st.write(f"**📌 ID_SHEET:** {ID_SHEET}")
-        st.write(f"**📌 GID_PRODUCTOS:** {GID_PRODUCTOS}")
-        st.write(f"**📌 URL completa:** https://docs.google.com/spreadsheets/d/{ID_SHEET}/export?format=csv&gid={GID_PRODUCTOS}")
-        
-        df = cargar_productos()
-        
-        if df.empty:
-            st.error("❌ No se pudieron cargar productos. Verifica la conexión con Google Sheets.")
-            st.info("💡 Posibles soluciones:")
-            st.markdown("""
-            1. Verifica que el GID_PRODUCTOS sea correcto (debe ser '0' para la primera hoja)
-            2. Asegúrate que el archivo sea público o esté compartido
-            3. Revisa que la hoja se llame 'PRODUCTOS' o tenga el formato correcto
-            """)
-            st.stop()
-        
-        st.write(f"**📊 Total de filas cargadas:** {len(df)}")
-        st.write(f"**📋 Columnas encontradas:** {list(df.columns)}")
-        
-        # Verificar columnas necesarias
-        columnas_necesarias = ['producto', 'precio']
-        for col in columnas_necesarias:
-            if col not in df.columns:
-                st.error(f"❌ Falta la columna '{col}' en tu Google Sheets")
-                st.info(f"Columnas actuales: {list(df.columns)}")
-                st.stop()
-        
-        # Mostrar los primeros productos
-        st.write("**📝 Primeros 3 productos (datos crudos):**")
-        st.dataframe(df.head(3))
-        
-        # Verificar productos disponibles
-        if 'disponible' in df.columns:
-            disponibles = df[df['disponible'].str.upper() == 'SI']
-            st.write(f"**✅ Productos con Disponible='SI':** {len(disponibles)} de {len(df)}")
-            st.write(f"**Valores únicos en columna 'disponible':** {df['disponible'].unique()}")
-        else:
-            st.warning("⚠️ No se encontró la columna 'disponible'. Mostrando todos los productos.")
-            disponibles = df
-        
-        if disponibles.empty:
-            st.error("❌ No hay productos con Disponible='SI'")
-            st.stop()
-        
-        # Mostrar resumen de variedades
-        st.write("**📊 Resumen de variedades:**")
-        for idx, row in disponibles.iterrows():
-            producto = row.get('producto', 'Unknown')
-            variedades_raw = row.get('variedades', 'Única')
-            num_variedades = len(str(variedades_raw).split(';'))
-            st.write(f"  - {producto}: {num_variedades} variedad(es) - '{variedades_raw}'")
-        
-        st.markdown('</div>', unsafe_allow_html=True)
+    df = cargar_productos()
     
-    st.markdown("---")
-    # ========== FIN DIAGNÓSTICO ==========
+    if df.empty:
+        st.error("❌ No se pudieron cargar productos. Verifica la conexión con Google Sheets.")
+        st.info("Asegúrate que el Sheet esté compartido como 'Cualquier persona con el enlace' → Lector")
+        return
+    
+    # Filtrar productos disponibles
+    if 'disponible' in df.columns:
+        disponibles = df[df['disponible'].str.upper() == 'SI']
+    else:
+        disponibles = df
+    
+    if disponibles.empty:
+        st.warning("No hay productos disponibles")
+        return
     
     # Mostrar productos
     for idx, row in disponibles.iterrows():
@@ -230,7 +182,7 @@ def mostrar_productos():
                 # Separar por punto y coma y limpiar espacios
                 variedades = [v.strip() for v in str(variedades_raw).split(';')]
                 
-                # Manejar ingredientes (pueden estar vacíos)
+                # Manejar ingredientes
                 if pd.notna(ingredientes_raw) and str(ingredientes_raw).strip():
                     ingredientes = [i.strip() for i in str(ingredientes_raw).split(';')]
                 else:
@@ -245,18 +197,11 @@ def mostrar_productos():
                     else:
                         precios.append(0)
                 
-                # Asegurar que todas las listas tengan la misma longitud
+                # Asegurar longitudes iguales
                 while len(ingredientes) < len(variedades):
                     ingredientes.append("")
                 while len(precios) < len(variedades):
                     precios.append(0)
-                
-                # Mostrar diagnóstico individual (solo en modo debug)
-                with st.expander(f"🔧 Debug: {nombre_producto}"):
-                    st.write(f"**Variedades:** {variedades}")
-                    st.write(f"**Ingredientes:** {ingredientes}")
-                    st.write(f"**Precios raw:** {precios_raw_list}")
-                    st.write(f"**Precios limpios:** {precios}")
                 
                 # Si hay más de una variedad, mostrar como tabs
                 if len(variedades) > 1:
@@ -353,8 +298,6 @@ if 'user_name' not in st.session_state:
     st.session_state.user_name = None
 if 'user_dni' not in st.session_state:
     st.session_state.user_dni = None
-if 'modo_diagnostico' not in st.session_state:
-    st.session_state.modo_diagnostico = True
 
 def cerrar_sesion_admin():
     st.session_state.admin_logged = False
@@ -511,10 +454,7 @@ def panel_admin():
         with tabs[1]:
             st.subheader("Lista de pedidos")
             try:
-                sheet_id = "1WcVWos3p9NJKKEpY2L1-gmKhEkZJH1FL8Hy5bNqHyRA"
-                gid_pedidos = "1395505058"
-                url_pedidos = f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv&gid={gid_pedidos}&cb={int(time.time())}"
-                df_pedidos = pd.read_csv(url_pedidos)
+                df_pedidos = pd.read_csv(f"{URL_PEDIDOS_BASE}&cb={int(time.time())}")
                 if not df_pedidos.empty:
                     st.dataframe(df_pedidos, use_container_width=True)
                 else:
@@ -580,11 +520,6 @@ def vista_inicio():
         if conf.get('whatsapp'):
             st.write(f"**💬 WhatsApp:** {conf['whatsapp']}")
         st.write(f"**🚚 Costo de envío:** {formatear_moneda(costo_delivery)}")
-    
-    if st.session_state.modo_diagnostico:
-        if st.button("🔧 Desactivar modo diagnóstico", use_container_width=True):
-            st.session_state.modo_diagnostico = False
-            st.rerun()
 
 def vista_rastreo():
     st.subheader("🔍 Estado de tu pedido")
@@ -610,10 +545,7 @@ def vista_rastreo():
         
         try:
             with st.spinner("🔍 Buscando tu pedido..."):
-                sheet_id = "1WcVWos3p9NJKKEpY2L1-gmKhEkZJH1FL8Hy5bNqHyRA"
-                gid_pedidos = "1395505058"
-                url_pedidos = f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv&gid={gid_pedidos}&cb={int(time.time())}"
-                df_peds = pd.read_csv(url_pedidos)
+                df_peds = pd.read_csv(f"{URL_PEDIDOS_BASE}&cb={int(time.time())}")
                 df_peds.columns = [c.strip().upper() for c in df_peds.columns]
                 
                 if 'DNI' not in df_peds.columns:
