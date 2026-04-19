@@ -10,23 +10,17 @@ import logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Intentar cargar secrets
-try:
-    TELEGRAM_TOKEN = st.secrets["telegram"]["token"]
-    TELEGRAM_CHAT_ID = st.secrets["telegram"]["chat_id"]
-    ID_SHEET = st.secrets["sheets"]["id_sheet"]
-    GID_CONFIG = st.secrets["sheets"]["gid_config"]
-    GID_PRODUCTOS = st.secrets["sheets"]["gid_productos"]
-    GID_PEDIDOS = st.secrets["sheets"]["gid_pedidos"]
-except:
-    TELEGRAM_TOKEN = "8793126374:AAG5zIBWrUOq50Ku0zjXEe8joD_JlcCDURI"
-    TELEGRAM_CHAT_ID = "7860013984"
-    ID_SHEET = "1WcVWos3p9NJKKEpY2L1-gmKhEkZJH1FL8Hy5bNqHyRA"
-    GID_CONFIG = "612320365"
-    GID_PRODUCTOS = "0"
-    GID_PEDIDOS = "1395505058"
+# IDs de Google Sheets
+ID_SHEET = "1WcVWos3p9NJKKEpY2L1-gmKhEkZJH1FL8Hy5bNqHyRA"
+GID_CONFIG = "612320365"
+GID_PRODUCTOS = "0"
+GID_PEDIDOS = "1395505058"
 
-# URLs de Google Sheets
+# Tokens de Telegram
+TELEGRAM_TOKEN = "8793126374:AAG5zIBWrUOq50Ku0zjXEe8joD_JlcCDURI"
+TELEGRAM_CHAT_ID = "7860013984"
+
+# URLs de exportación directa (funcionan con compartir público)
 URL_PRODUCTOS = f"https://docs.google.com/spreadsheets/d/{ID_SHEET}/export?format=csv&gid={GID_PRODUCTOS}"
 URL_CONFIG = f"https://docs.google.com/spreadsheets/d/{ID_SHEET}/export?format=csv&gid={GID_CONFIG}"
 URL_PEDIDOS_BASE = f"https://docs.google.com/spreadsheets/d/{ID_SHEET}/export?format=csv&gid={GID_PEDIDOS}"
@@ -66,7 +60,7 @@ def cargar_config():
         resp = requests.get(f"{URL_CONFIG}&cb={int(time.time())}", timeout=10)
         resp.raise_for_status()
         
-        # Forzar codificación UTF-8 para evitar problemas con emojis
+        # Forzar codificación UTF-8
         resp.encoding = 'utf-8'
         df = pd.read_csv(StringIO(resp.text), header=None, encoding='utf-8')
         
@@ -79,7 +73,6 @@ def cargar_config():
         
         # Obtener icono y limpiar si está corrupto
         icono_raw = config.get('icono', '🍔')
-        # Si el icono tiene caracteres corruptos, usar 🍔
         if 'ð' in icono_raw or 'Ÿ' in icono_raw or 'Ã' in icono_raw or len(icono_raw) > 2:
             icono_raw = '🍔'
         
@@ -123,32 +116,15 @@ def cargar_config():
 
 @st.cache_data(ttl=60)
 def cargar_productos():
-    """Carga productos desde Google Sheets con diagnóstico"""
+    """Carga productos desde Google Sheets"""
     try:
-        # Para diagnóstico
-        st.write(f"**🔍 URL de productos:** {URL_PRODUCTOS}")
-        
         resp_p = requests.get(f"{URL_PRODUCTOS}&cb={int(time.time())}", timeout=10)
-        
-        st.write(f"**📊 Código de respuesta HTTP:** {resp_p.status_code}")
-        
         resp_p.raise_for_status()
         resp_p.encoding = 'utf-8'
-        
-        # Mostrar primeras líneas del CSV
-        contenido = resp_p.text
-        st.write(f"**📝 Primeras 500 caracteres del CSV:**")
-        st.code(contenido[:500])
-        
-        df_p = pd.read_csv(StringIO(contenido), encoding='utf-8')
+        df_p = pd.read_csv(StringIO(resp_p.text), encoding='utf-8')
         df_p.columns = [c.strip().lower() for c in df_p.columns]
-        
-        st.success(f"✅ Productos cargados correctamente: {len(df_p)} filas")
-        st.write(f"**📋 Columnas encontradas:** {list(df_p.columns)}")
-        
         return df_p
     except Exception as e:
-        st.error(f"❌ Error específico al cargar productos: {e}")
         logger.error(f"Error cargando productos: {e}")
         return pd.DataFrame()
 
