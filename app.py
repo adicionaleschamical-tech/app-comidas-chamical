@@ -9,7 +9,7 @@ import json
 
 # ==================== CONFIGURACIÓN CRÍTICA ====================
 # 1. PEGA AQUÍ TU URL DE GOOGLE APPS SCRIPT (LA QUE TERMINA EN /exec)
-URL_APPS_SCRIPT = "https://script.google.com/macros/s/AKfycbzoC2fLX7Hax3D9PgxxMg1_8k-UYzE7kWG_qqpE1yV_T8fshCO2DNJmn9HMe0Czjg2aQw/exec"
+URL_APPS_SCRIPT = "https://script.google.com/macros/s/AKfycbwn1XLeQTH0VI3ROo3iu9-vDy4Cs211ClMCYgTC5RsOOnvIQoafVb7sze22qZVhApQfCQ/exec"
 
 # 2. DATOS DE TU PLANILLA
 ID_SHEET = "1WcVWos3p9NJKKEpY2L1-gmKhEkZJH1FL8Hy5bNqHyRA"
