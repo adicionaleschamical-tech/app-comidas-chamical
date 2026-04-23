@@ -7,7 +7,7 @@ from io import StringIO
 import json
 
 # ==================== CONFIGURACIÓN ====================
-URL_APPS_SCRIPT = "https://script.google.com/macros/s/AKfycbxtSvR607JdhJUHnR36hpohG48vzk0P9gFEVo6541pljj6BcZ59z3x6nzEW45vUwCM6/exec"
+URL_APPS_SCRIPT = "https://script.google.com/macros/s/AKfycbwn1XLeQTH0VI3ROo3iu9-vDy4Cs211ClMCYgTC5RsOOnvIQoafVb7sze22qZVhApQfCQ/exec"
 
 ID_SHEET = "1WcVWos3p9NJKKEpY2L1-gmKhEkZJH1FL8Hy5bNqHyRA"
 GID_CONFIG = "612320365"
@@ -21,7 +21,7 @@ URL_PRODUCTOS = f"https://docs.google.com/spreadsheets/d/{ID_SHEET}/export?forma
 URL_CONFIG = f"https://docs.google.com/spreadsheets/d/{ID_SHEET}/export?format=csv&gid={GID_CONFIG}"
 URL_PEDIDOS = f"https://docs.google.com/spreadsheets/d/{ID_SHEET}/export?format=csv&gid={GID_PEDIDOS}"
 
-# ==================== FUNCIONES ====================
+# ==================== FUNCIONES SIN CACHÉ ====================
 def limpiar_precio(texto):
     if pd.isna(texto) or str(texto).strip() == "":
         return 0
@@ -31,34 +31,39 @@ def limpiar_precio(texto):
 def formatear_moneda(valor):
     return f"$ {int(valor):,}".replace(",", ".")
 
-@st.cache_data(ttl=30)
-def cargar_datos(url):
+def cargar_datos_sin_cache(url):
+    """Carga datos SIEMPRE actualizados - SIN CACHÉ"""
     try:
-        resp = requests.get(f"{url}&cb={int(time.time())}", timeout=10)
+        # Timestamp para evitar cualquier caché
+        timestamp = int(time.time() * 1000)
+        resp = requests.get(f"{url}&_={timestamp}", timeout=10)
         resp.raise_for_status()
-        return pd.read_csv(StringIO(resp.text))
+        
+        # Forzar encoding UTF-8
+        contenido = resp.content.decode('utf-8-sig')
+        return pd.read_csv(StringIO(contenido))
     except Exception as e:
+        st.error(f"Error: {e}")
         return pd.DataFrame()
 
 def obtener_toda_configuracion():
-    """Lee toda la configuración del sheet"""
+    """Lee configuración SIEMPRE actualizada"""
     try:
-        df = cargar_datos(URL_CONFIG)
+        df = cargar_datos_sin_cache(URL_CONFIG)
         config = {}
         
         if df.empty:
             return config
         
-        # Buscar la fila con el nombre del local específicamente
         for idx, row in df.iterrows():
             if len(row) >= 2:
                 clave = str(row.iloc[0]).strip()
                 valor = str(row.iloc[1]).strip() if pd.notna(row.iloc[1]) else ""
                 
-                # Limpiar caracteres raros
+                # Limpiar caracteres especiales
                 valor = valor.replace("Â°", "°").replace("NÂ°", "N°")
                 
-                if clave and clave != "nan" and clave.lower() not in ["clave", "parametro", "config"]:
+                if clave and clave != "nan" and clave.lower() not in ["clave", "parametro"]:
                     config[clave] = valor
         
         return config
@@ -66,14 +71,12 @@ def obtener_toda_configuracion():
         return {}
 
 def obtener_valor_config(clave, valor_defecto=""):
-    """Obtiene un valor de configuración"""
+    """Obtiene valor de configuración actualizado"""
     config = obtener_toda_configuracion()
     
-    # Buscar exactamente
     if clave in config:
         return config[clave]
     
-    # Buscar sin importar mayúsculas
     for k, v in config.items():
         if k.lower() == clave.lower():
             return v
@@ -81,14 +84,14 @@ def obtener_valor_config(clave, valor_defecto=""):
     return valor_defecto
 
 def obtener_nombre_local():
-    """Obtiene el nombre del local correctamente"""
+    """Obtiene nombre del local actualizado"""
     nombre = obtener_valor_config("Nombre_Local", "")
-    if nombre and nombre != "":
+    if nombre:
         return nombre
-    return "HAMBURGUESAS REGIONAL QUINTA"
+    return "MI NEGOCIO"
 
 def verificar_credenciales(tipo, valor_ingresado):
-    """Verifica credenciales"""
+    """Verifica credenciales actuales"""
     if tipo == "admin":
         pass_correcta = obtener_valor_config("Admin_Pass", "")
         dni_correcto = obtener_valor_config("Admin_DNI", "")
@@ -110,6 +113,7 @@ def esta_en_mantenimiento():
     return modo.upper() == "SI"
 
 def aplicar_tema():
+    """Aplica tema actualizado"""
     tema_primario = obtener_valor_config("Tema_Primario", "#FF6B35")
     tema_secundario = obtener_valor_config("Tema_Secundario", "#FF6B35")
     bg_color = obtener_valor_config("Background_Color", "#FFF8F0")
@@ -127,10 +131,6 @@ def aplicar_tema():
         }}
         .stButton > button:hover {{
             background-color: {tema_secundario};
-            transform: scale(1.02);
-        }}
-        h1, h2, h3, h4, h5, h6, p, div, .stMarkdown {{
-            font-family: {font_family};
         }}
         </style>
     """, unsafe_allow_html=True)
@@ -192,7 +192,7 @@ class PedidoManager:
         try:
             r = requests.get(URL_APPS_SCRIPT, params=params, timeout=15)
             return "OK" in r.text
-        except Exception as e:
+        except:
             return False
 
     def notificar_telegram(self, nombre, dni, direccion, detalle, total):
@@ -232,6 +232,14 @@ def main():
     aplicar_tema()
     nombre_local = obtener_nombre_local()
     st.set_page_config(page_title=nombre_local, page_icon="🍔")
+    
+    # Sidebar con botón de recarga
+    with st.sidebar:
+        st.info(f"📍 {nombre_local}")
+        if st.button("🔄 RECARGAR DATOS", use_container_width=True):
+            st.cache_data.clear()
+            st.success("✅ Datos recargados desde el sheet")
+            st.rerun()
     
     # VISTA INICIO
     if st.session_state.vista == 'inicio':
@@ -278,19 +286,30 @@ def main():
                 else:
                     st.error("❌ Credencial incorrecta")
     
-    # PANEL ADMIN
+    # PANEL ADMIN (igual que antes pero sin caché)
     elif st.session_state.vista == 'admin':
         es_admin = (st.session_state.tipo_usuario == "admin")
         st.subheader(f"⚙️ Panel de {'ADMIN' if es_admin else 'USUARIO'}")
+        
+        # Botón de recarga rápida
+        col_recarga, _ = st.columns([1, 4])
+        with col_recarga:
+            if st.button("🔄 Recargar", use_container_width=True):
+                st.cache_data.clear()
+                st.rerun()
         
         if st.button("⬅ Volver"):
             st.session_state.vista = 'inicio'
             st.session_state.tipo_usuario = None
             st.rerun()
         
+        # Obtener configuración actualizada
         config = obtener_toda_configuracion()
         
-        # Pestañas
+        # Mostrar valores actuales para debug
+        with st.expander("📋 Configuración actual (del sheet)"):
+            st.json(config)
+        
         if es_admin:
             tabs = st.tabs(["🏪 General", "🍔 Productos", "📊 Pedidos", "🎨 Personalización", "🔐 Seguridad"])
         else:
@@ -319,8 +338,7 @@ def main():
                     guardar_configuracion("Costo_Delivery", str(costo))
                     if es_admin:
                         guardar_configuracion("MODO_MANTENIMIENTO", mantenimiento)
-                    st.success("✅ Guardado")
-                    st.cache_data.clear()
+                    st.success("✅ Guardado - Recargando...")
                     time.sleep(1)
                     st.rerun()
         
@@ -333,11 +351,10 @@ def main():
                     if st.form_submit_button("Guardar"):
                         if guardar_producto(nombre_prod, precio_prod):
                             st.success("✅ Producto guardado")
-                            st.cache_data.clear()
                             time.sleep(1)
                             st.rerun()
             
-            df = cargar_datos(URL_PRODUCTOS)
+            df = cargar_datos_sin_cache(URL_PRODUCTOS)
             if not df.empty:
                 for i, row in df.iterrows():
                     c1, c2, c3 = st.columns([3, 1, 1])
@@ -352,11 +369,10 @@ def main():
         
         # TAB PEDIDOS
         with tabs[2]:
-            if st.button("🔄 Refrescar"):
-                st.cache_data.clear()
+            if st.button("🔄 Refrescar Pedidos"):
                 st.rerun()
             
-            df_ped = cargar_datos(URL_PEDIDOS)
+            df_ped = cargar_datos_sin_cache(URL_PEDIDOS)
             if not df_ped.empty:
                 for _, row in df_ped.tail(10).iterrows():
                     with st.container(border=True):
@@ -364,7 +380,6 @@ def main():
                         st.write(f"📍 {row.iloc[3]}")
                         st.write(f"📝 {row.iloc[4]}")
                         st.write(f"💰 {formatear_moneda(limpiar_precio(row.iloc[5]))}")
-                        st.write(f"📊 Estado: **{row.iloc[6] if len(row) > 6 else 'Pendiente'}**")
         
         # TAB PERSONALIZACIÓN
         with tabs[3]:
@@ -380,10 +395,10 @@ def main():
                     guardar_configuracion("Background_Color", bg)
                     guardar_configuracion("Logo_URL", logo)
                     st.success("✅ Guardado")
-                    st.cache_data.clear()
+                    time.sleep(1)
                     st.rerun()
         
-        # TAB SEGURIDAD (solo admin)
+        # TAB SEGURIDAD
         if es_admin and len(tabs) > 4:
             with tabs[4]:
                 with st.form("seguridad"):
@@ -398,6 +413,7 @@ def main():
                         guardar_configuracion("User", user)
                         guardar_configuracion("User_Pass", user_pass)
                         st.success("✅ Credenciales guardadas")
+                        st.rerun()
     
     # VISTA PEDIDO
     elif st.session_state.vista == 'pedir':
@@ -417,7 +433,7 @@ def main():
             return
         
         st.subheader("📋 CARTA")
-        df = cargar_datos(URL_PRODUCTOS)
+        df = cargar_datos_sin_cache(URL_PRODUCTOS)
         if not df.empty:
             for i, row in df.iterrows():
                 c1, c2, c3 = st.columns([3, 1, 1])
