@@ -5,8 +5,7 @@ import time
 import re
 from io import StringIO
 import json
-from PIL import Image
-from io import BytesIO
+from datetime import datetime
 
 # ==================== CONFIGURACIÓN ====================
 URL_APPS_SCRIPT = "https://script.google.com/macros/s/AKfycbwn1XLeQTH0VI3ROo3iu9-vDy4Cs211ClMCYgTC5RsOOnvIQoafVb7sze22qZVhApQfCQ/exec"
@@ -140,11 +139,6 @@ def aplicar_tema():
             margin: 10px 0;
             background-color: white;
         }}
-        .product-img {{
-            width: 100%;
-            border-radius: 10px;
-            margin-bottom: 10px;
-        }}
         </style>
     """, unsafe_allow_html=True)
 
@@ -168,26 +162,17 @@ def guardar_configuracion(parametro, valor):
     except:
         return False
 
-def guardar_producto(producto, precio):
-    params = {
-        "accion": "guardar_producto",
-        "producto": producto,
-        "precio": precio
-    }
+def enviar_mensaje_telegram(mensaje, parse_mode="Markdown"):
+    """Envía un mensaje de prueba a Telegram"""
     try:
-        r = requests.get(URL_APPS_SCRIPT, params=params, timeout=15)
-        return "OK" in r.text
-    except:
-        return False
-
-def eliminar_producto(producto):
-    params = {
-        "accion": "eliminar_producto",
-        "producto": producto
-    }
-    try:
-        r = requests.get(URL_APPS_SCRIPT, params=params, timeout=15)
-        return "OK" in r.text
+        url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+        data = {
+            "chat_id": TELEGRAM_CHAT_ID,
+            "text": mensaje,
+            "parse_mode": parse_mode
+        }
+        response = requests.post(url, data=data, timeout=10)
+        return response.status_code == 200
     except:
         return False
 
@@ -213,14 +198,20 @@ class PedidoManager:
             "inline_keyboard": [
                 [{"text": "👨‍🍳 Preparando", "callback_data": f"est_Preparando_{dni}"},
                  {"text": "🛵 Enviado", "callback_data": f"est_Enviado_{dni}"}],
-                [{"text": "✅ Finalizado", "callback_data": f"est_Listo_{dni}"}]
+                [{"text": "✅ Finalizado", "callback_data": f"est_Finalizado_{dni}"}]
             ]
         }
         msg = f"🔔 *NUEVO PEDIDO*\n\n👤 {nombre}\n🆔 DNI: {dni}\n📍 {direccion}\n\n*Detalle:*\n{detalle}\n💰 *TOTAL: {formatear_moneda(total)}*"
         
         try:
-            requests.post(f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage", 
-                         data={"chat_id": TELEGRAM_CHAT_ID, "text": msg, "parse_mode": "Markdown", "reply_markup": json.dumps(keyboard)})
+            url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+            payload = {
+                "chat_id": TELEGRAM_CHAT_ID,
+                "text": msg,
+                "parse_mode": "Markdown",
+                "reply_markup": json.dumps(keyboard)
+            }
+            requests.post(url, data=payload, timeout=10)
         except:
             pass
 
@@ -241,96 +232,110 @@ def mostrar_productos_cliente():
         return
     
     # Agrupar por categoría
-    categorias = df['Categoria'].unique() if 'Categoria' in df.columns else ['Productos']
+    if 'Categoria' in df.columns:
+        categorias = df['Categoria'].unique()
+    else:
+        categorias = ['Productos']
     
     for categoria in categorias:
         st.subheader(f"📌 {categoria}")
         
-        productos_cat = df[df['Categoria'] == categoria] if 'Categoria' in df.columns else df
+        if 'Categoria' in df.columns:
+            productos_cat = df[df['Categoria'] == categoria]
+        else:
+            productos_cat = df
         
-        for _, row in productos_cat.iterrows():
+        for idx, row in productos_cat.iterrows():
             with st.container(border=True):
-                col1, col2 = st.columns([1, 2])
+                # Imagen
+                imagen_url = row.get('Imagen', '')
+                if imagen_url and imagen_url != '' and imagen_url != 'nan':
+                    try:
+                        st.image(imagen_url, width=200)
+                    except:
+                        pass
                 
-                # Columna de imagen
-                with col1:
-                    imagen_url = row.get('Imagen', '')
-                    if imagen_url and imagen_url != '' and imagen_url != 'nan':
-                        try:
-                            st.image(imagen_url, use_container_width=True)
-                        except:
-                            st.write("📷 Sin imagen")
-                    else:
-                        st.write("🍔")
+                # Nombre del producto
+                producto = row.get('Producto', 'Sin nombre')
+                st.markdown(f"### 🍔 {producto}")
                 
-                # Columna de información
-                with col2:
-                    producto = row.get('Producto', 'Sin nombre')
-                    st.markdown(f"### {producto}")
+                # Ingredientes
+                ingredientes = row.get('Ingredientes', '')
+                if ingredientes and ingredientes != 'nan':
+                    with st.expander("📋 Ver ingredientes"):
+                        st.write(ingredientes)
+                
+                # Variedades y precios
+                variedades = row.get('Variedades', '')
+                precios = row.get('Precio', '')
+                
+                if variedades and variedades != 'nan':
+                    variedades_lista = [v.strip() for v in str(variedades).split(';')]
+                    precios_lista = [p.strip() for p in str(precios).split(';')] if precios != 'nan' else []
                     
-                    # Ingredientes
-                    ingredientes = row.get('Ingredientes', '')
-                    if ingredientes and ingredientes != 'nan':
-                        with st.expander("📋 Ingredientes"):
-                            st.write(ingredientes)
-                    
-                    # Variedades y precios
-                    variedades = row.get('Variedades', '')
-                    precios = row.get('Precio', '')
-                    
-                    if variedades and variedades != 'nan':
-                        variedades_lista = [v.strip() for v in str(variedades).split(';')]
-                        precios_lista = [p.strip() for p in str(precios).split(';')] if precios != 'nan' else []
+                    for j, var in enumerate(variedades_lista):
+                        precio_var = precios_lista[j] if j < len(precios_lista) else '0'
+                        precio_num = limpiar_precio(precio_var)
                         
-                        for j, var in enumerate(variedades_lista):
-                            precio_var = precios_lista[j] if j < len(precios_lista) else '0'
-                            precio_num = limpiar_precio(precio_var)
-                            
-                            col_a, col_b, col_c = st.columns([2, 1, 1])
-                            with col_a:
-                                st.write(f"**{var}**")
-                            with col_b:
-                                st.write(formatear_moneda(precio_num))
-                            with col_c:
-                                if st.button(f"Añadir {var}", key=f"add_{producto}_{j}"):
-                                    item_key = f"{producto} - {var}"
+                        col1, col2, col3 = st.columns([2, 1, 1])
+                        with col1:
+                            st.write(f"**{var}**")
+                        with col2:
+                            st.write(formatear_moneda(precio_num))
+                        with col3:
+                            if st.button(f"Añadir", key=f"add_{producto}_{j}"):
+                                item_key = f"{producto} - {var}"
+                                if item_key in st.session_state.carrito:
+                                    st.session_state.carrito[item_key]['cantidad'] += 1
+                                else:
                                     st.session_state.carrito[item_key] = {
                                         'nombre': item_key,
                                         'precio': precio_num,
-                                        'cantidad': st.session_state.carrito.get(item_key, {}).get('cantidad', 0) + 1
+                                        'cantidad': 1
                                     }
-                                    st.toast(f"✓ Añadido: {var}", icon="🍔")
-                                    st.rerun()
-                    else:
-                        # Producto simple sin variedades
-                        precio_num = limpiar_precio(precios)
-                        col_a, col_b = st.columns([2, 1])
-                        with col_a:
-                            st.write(f"**{producto}**")
-                        with col_b:
-                            st.write(formatear_moneda(precio_num))
-                        
-                        if st.button(f"Añadir {producto}", key=f"add_simple_{_}"):
-                            st.session_state.carrito[producto] = {
-                                'nombre': producto,
-                                'precio': precio_num,
-                                'cantidad': st.session_state.carrito.get(producto, {}).get('cantidad', 0) + 1
-                            }
+                                st.toast(f"✓ Añadido: {var}", icon="🍔")
+                                st.rerun()
+                else:
+                    # Producto simple
+                    precio_num = limpiar_precio(precios)
+                    col1, col2, col3 = st.columns([2, 1, 1])
+                    with col1:
+                        st.write(f"**{producto}**")
+                    with col2:
+                        st.write(formatear_moneda(precio_num))
+                    with col3:
+                        if st.button(f"Añadir", key=f"add_simple_{idx}"):
+                            if producto in st.session_state.carrito:
+                                st.session_state.carrito[producto]['cantidad'] += 1
+                            else:
+                                st.session_state.carrito[producto] = {
+                                    'nombre': producto,
+                                    'precio': precio_num,
+                                    'cantidad': 1
+                                }
                             st.toast(f"✓ Añadido: {producto}", icon="🍔")
                             st.rerun()
+                
+                # Disponibilidad
+                disponible = row.get('Disponible', 'SI')
+                if disponible == 'NO':
+                    st.warning("⚠️ Producto no disponible")
 
 def main():
     # Verificar mantenimiento
     if esta_en_mantenimiento() and st.session_state.vista != 'admin' and st.session_state.tipo_usuario != 'admin':
         st.title("🔧 MANTENIMIENTO")
-        st.warning("Sistema en mantenimiento")
-        st.stop()
+        st.warning("Sistema en mantenimiento. Pronto volvemos.")
+        if st.button("🔐 Acceso Administrador"):
+            st.session_state.vista = 'login'
+            st.rerun()
+        return
     
     aplicar_tema()
     nombre_local = obtener_nombre_local()
-    st.set_page_config(page_title=nombre_local, page_icon="🍔")
+    st.set_page_config(page_title=nombre_local, page_icon="🍔", layout="wide")
     
-    # Sidebar - Solo visible para admin
+    # Sidebar - Solo visible para admin/usuario
     if st.session_state.tipo_usuario in ['admin', 'usuario']:
         with st.sidebar:
             st.info(f"📍 {nombre_local}")
@@ -338,14 +343,28 @@ def main():
             st.markdown(f"👤 **Usuario:** {st.session_state.tipo_usuario.upper()}")
             
             # Estado del sistema
-            st.markdown("### 📡 Estado")
+            st.markdown("### 📡 Estado del Sistema")
+            
+            # Verificar Google Sheets
             config_check = obtener_toda_configuracion()
             if config_check:
-                st.success("✅ Sheets conectado")
+                st.success("✅ Google Sheets: Conectado")
             else:
-                st.error("❌ Sheets error")
+                st.error("❌ Google Sheets: Error")
             
-            st.caption("🤖 Telegram activo")
+            # Verificar Telegram
+            st.markdown("---")
+            st.markdown("### 🤖 Telegram")
+            col_tg1, col_tg2 = st.columns(2)
+            with col_tg1:
+                if st.button("📨 Probar Bot", use_container_width=True):
+                    with st.spinner("Enviando..."):
+                        if enviar_mensaje_telegram("✅ *MENSAJE DE PRUEBA*\n\nTu bot de Telegram funciona correctamente.\n\nHora: " + datetime.now().strftime("%H:%M:%S")):
+                            st.success("✅ Mensaje enviado")
+                        else:
+                            st.error("❌ Error al enviar")
+            with col_tg2:
+                st.caption("Chat ID: " + TELEGRAM_CHAT_ID[-4:])
             
             st.markdown("---")
             if st.button("🚪 Cerrar Sesión", use_container_width=True):
@@ -449,26 +468,26 @@ def main():
                     time.sleep(1)
                     st.rerun()
         
-        # TAB PRODUCTOS
+        # TAB PRODUCTOS - Vista previa
         with tabs[1]:
             st.subheader("Gestión de Productos")
-            st.info("Para editar productos, ve directamente a Google Sheets")
-            st.markdown(f"[Abrir Google Sheets](https://docs.google.com/spreadsheets/d/{ID_SHEET}/edit#gid={GID_PRODUCTOS})")
+            st.info("📝 Para editar productos, abre Google Sheets directamente:")
+            st.markdown(f"[📊 Abrir Google Sheets - Productos](https://docs.google.com/spreadsheets/d/{ID_SHEET}/edit#gid={GID_PRODUCTOS})")
             
             # Vista previa de productos
             df = cargar_datos_sin_cache(URL_PRODUCTOS)
             if not df.empty:
-                st.write("### Productos actuales")
-                for i, row in df.iterrows():
+                st.write("### Vista previa de productos")
+                for idx, row in df.iterrows():
                     with st.container(border=True):
                         col1, col2 = st.columns([3, 1])
                         with col1:
                             st.write(f"**{row.get('Producto', 'Sin nombre')}**")
-                            st.caption(f"Categoría: {row.get('Categoria', 'N/A')}")
-                            st.caption(f"Variedades: {row.get('Variedades', 'N/A')}")
+                            st.caption(f"📂 {row.get('Categoria', 'N/A')}")
+                            st.caption(f"🥗 Variedades: {row.get('Variedades', 'N/A')}")
                         with col2:
                             st.write(f"💰 {row.get('Precio', 'N/A')}")
-                            disponible = row.get('Disponible', 'NO')
+                            disponible = row.get('Disponible', 'SI')
                             if disponible == 'SI':
                                 st.success("✅ Disponible")
                             else:
@@ -482,22 +501,33 @@ def main():
             
             df_ped = cargar_datos_sin_cache(URL_PEDIDOS)
             if not df_ped.empty:
+                st.write(f"📋 Últimos {min(20, len(df_ped))} pedidos")
                 for _, row in df_ped.tail(20).iloc[::-1].iterrows():
                     with st.container(border=True):
                         fecha = row.iloc[0] if len(row) > 0 else "Sin fecha"
-                        nombre = row.iloc[2] if len(row) > 2 else "N/A"
                         dni = row.iloc[1] if len(row) > 1 else "N/A"
+                        nombre = row.iloc[2] if len(row) > 2 else "N/A"
                         direccion = row.iloc[3] if len(row) > 3 else "N/A"
                         detalle = row.iloc[4] if len(row) > 4 else "N/A"
                         total = formatear_moneda(limpiar_precio(row.iloc[5] if len(row) > 5 else 0))
                         estado = row.iloc[6] if len(row) > 6 else "Pendiente"
                         
-                        st.write(f"**{fecha}** - #{dni}")
-                        st.write(f"👤 {nombre}")
-                        st.write(f"📍 {direccion}")
-                        st.write(f"📝 {detalle}")
-                        st.write(f"💰 {total}")
-                        st.write(f"📊 Estado: **{estado}**")
+                        col1, col2 = st.columns([3, 1])
+                        with col1:
+                            st.write(f"**{fecha}** - #{dni}")
+                            st.write(f"👤 {nombre}")
+                            st.write(f"📍 {direccion}")
+                            st.write(f"📝 {detalle}")
+                        with col2:
+                            st.write(f"💰 {total}")
+                            if estado == "Pendiente":
+                                st.warning(f"📊 {estado}")
+                            elif estado == "Preparando":
+                                st.info(f"👨‍🍳 {estado}")
+                            elif estado == "Enviado":
+                                st.success(f"🛵 {estado}")
+                            else:
+                                st.success(f"✅ {estado}")
             else:
                 st.info("No hay pedidos registrados")
         
@@ -506,33 +536,32 @@ def main():
             with st.form("personalizacion"):
                 color1 = st.color_picker("Color Primario", config.get("Tema_Primario", "#FF6B35"))
                 color2 = st.color_picker("Color Secundario", config.get("Tema_Secundario", "#FF6B35"))
-                bg = st.color_picker("Fondo", config.get("Background_Color", "#FFF8F0"))
-                logo = st.text_input("URL Logo", config.get("Logo_URL", ""))
-                icono = st.text_input("Icono", config.get("icono", "🍔"))
+                bg = st.color_picker("Color de Fondo", config.get("Background_Color", "#FFF8F0"))
+                logo = st.text_input("URL del Logo", config.get("Logo_URL", ""))
                 font = st.selectbox("Fuente", ["'Poppins', sans-serif", "'Arial', sans-serif", "'Roboto', sans-serif"], 
                                    index=0 if "Poppins" in config.get("Font_Family", "") else 0)
                 
-                if st.form_submit_button("Guardar"):
+                if st.form_submit_button("Guardar Personalización"):
                     guardar_configuracion("Tema_Primario", color1)
                     guardar_configuracion("Tema_Secundario", color2)
                     guardar_configuracion("Background_Color", bg)
                     guardar_configuracion("Logo_URL", logo)
-                    guardar_configuracion("icono", icono)
                     guardar_configuracion("Font_Family", font)
-                    st.success("✅ Guardado")
+                    st.success("✅ Personalización guardada")
                     time.sleep(1)
                     st.rerun()
         
         # TAB SEGURIDAD (solo admin)
         if es_admin and len(tabs) > 4:
             with tabs[4]:
+                st.warning("⚠️ Configuración sensible - Solo Administrador")
                 with st.form("seguridad"):
-                    admin_dni = st.text_input("DNI Admin", config.get("Admin_DNI", ""))
-                    admin_pass = st.text_input("Pass Admin", config.get("Admin_Pass", ""), type="password")
+                    admin_dni = st.text_input("DNI Administrador", config.get("Admin_DNI", ""))
+                    admin_pass = st.text_input("Contraseña Administrador", config.get("Admin_Pass", ""), type="password")
                     user = st.text_input("Usuario", config.get("User", ""))
-                    user_pass = st.text_input("Pass Usuario", config.get("User_Pass", ""), type="password")
+                    user_pass = st.text_input("Contraseña Usuario", config.get("User_Pass", ""), type="password")
                     
-                    if st.form_submit_button("Guardar"):
+                    if st.form_submit_button("Guardar Credenciales"):
                         guardar_configuracion("Admin_DNI", admin_dni)
                         guardar_configuracion("Admin_Pass", admin_pass)
                         guardar_configuracion("User", user)
@@ -553,21 +582,17 @@ def main():
                 st.write(f"Bienvenido a **{nombre_local}**")
                 nombre = st.text_input("Tu Nombre")
                 dni = st.text_input("Tu DNI (sin puntos)")
-                
-                delivery = st.checkbox("📦 Envío a domicilio")
-                direccion = ""
-                if delivery:
-                    direccion = st.text_area("Dirección de entrega")
+                direccion = st.text_area("Dirección de entrega (opcional - solo si necesitas delivery)")
+                st.caption("Si no ingresas dirección, el pedido será para retirar en el local")
                 
                 if st.form_submit_button("Ver Carta"):
                     if nombre and dni:
-                        if delivery and not direccion:
-                            st.error("Ingresa tu dirección")
-                        else:
-                            st.session_state.user_name = nombre
-                            st.session_state.user_dni = dni
-                            st.session_state.user_direccion = direccion if delivery else "Retira en local"
-                            st.rerun()
+                        st.session_state.user_name = nombre
+                        st.session_state.user_dni = dni
+                        st.session_state.user_direccion = direccion if direccion else "Retira en local"
+                        st.rerun()
+                    else:
+                        st.error("❌ Completa tu nombre y DNI")
             return
         
         # Mostrar productos
@@ -588,9 +613,12 @@ def main():
                 st.write(f"{cantidad}x {key} - {formatear_moneda(subtotal)}")
                 resumen += f"• {cantidad}x {key}\n"
             
+            # Delivery
             costo_delivery = int(obtener_valor_config("Costo_Delivery") or 0)
-            if st.session_state.get('user_direccion', '') != "Retira en local" and costo_delivery > 0:
-                st.info(f"🚚 Delivery: {formatear_moneda(costo_delivery)}")
+            direccion_final = st.session_state.get('user_direccion', 'Retira en local')
+            
+            if direccion_final != "Retira en local" and costo_delivery > 0:
+                st.info(f"🚚 Costo de delivery: {formatear_moneda(costo_delivery)}")
                 total += costo_delivery
                 resumen += f"• Delivery: {formatear_moneda(costo_delivery)}\n"
             
@@ -604,7 +632,6 @@ def main():
             with col2:
                 if st.button("🚀 CONFIRMAR PEDIDO", type="primary"):
                     mgr = PedidoManager()
-                    direccion_final = st.session_state.get('user_direccion', 'Retira en local')
                     if mgr.registrar(st.session_state.user_dni, st.session_state.user_name, resumen, total, direccion_final):
                         mgr.notificar_telegram(st.session_state.user_name, st.session_state.user_dni, direccion_final, resumen, total)
                         st.success("✅ ¡Pedido enviado con éxito!")
@@ -618,6 +645,8 @@ def main():
                         st.rerun()
                     else:
                         st.error("❌ Error al enviar el pedido")
+        else:
+            st.info("🛒 Tu carrito está vacío. Agrega productos para hacer un pedido.")
 
 if __name__ == "__main__":
     main()
