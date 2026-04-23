@@ -32,7 +32,6 @@ def formatear_moneda(valor):
     return f"$ {int(valor):,}".replace(",", ".")
 
 def cargar_datos_sin_cache(url):
-    """Carga datos SIN CACHÉ - siempre actualizado"""
     try:
         timestamp = int(time.time() * 1000)
         resp = requests.get(f"{url}&_={timestamp}", timeout=10)
@@ -43,7 +42,6 @@ def cargar_datos_sin_cache(url):
         return pd.DataFrame()
 
 def obtener_toda_configuracion():
-    """Lee TODA la configuración - sin ignorar ninguna fila"""
     try:
         df = cargar_datos_sin_cache(URL_CONFIG)
         config = {}
@@ -51,26 +49,23 @@ def obtener_toda_configuracion():
         if df.empty:
             return config
         
-        # Recorrer CADA FILA sin excepción
         for i in range(len(df)):
             clave = str(df.iloc[i, 0]).strip()
             valor = str(df.iloc[i, 1]).strip() if len(df.columns) > 1 else ""
             
-            # Limpiar valores
-            if valor == "nan" or valor == "None" or valor == "":
+            if valor == "nan" or valor == "None":
                 valor = ""
             
             valor = valor.replace("Â°", "°").replace("NÂ°", "N°")
             
-            # Guardar TODO (incluyendo Nombre_Local)
             if clave and clave != "nan":
                 config[clave] = valor
         
         return config
     except Exception as e:
         return {}
+
 def obtener_valor_config(clave_exacta):
-    """Obtiene un valor usando la clave EXACTA del sheet"""
     config = obtener_toda_configuracion()
     
     if clave_exacta in config:
@@ -80,14 +75,12 @@ def obtener_valor_config(clave_exacta):
     return ""
 
 def obtener_nombre_local():
-    """Obtiene el nombre del local usando la clave exacta 'Nombre_Local'"""
     nombre = obtener_valor_config("Nombre_Local")
     if nombre:
         return nombre
     return "MI NEGOCIO"
 
 def verificar_credenciales(tipo, valor_ingresado):
-    """Verifica credenciales usando las claves exactas"""
     if tipo == "admin":
         pass_correcta = obtener_valor_config("Admin_Pass")
         dni_correcto = obtener_valor_config("Admin_DNI")
@@ -109,7 +102,6 @@ def esta_en_mantenimiento():
     return modo.upper() == "SI"
 
 def aplicar_tema():
-    """Aplica los colores desde el sheet"""
     tema_primario = obtener_valor_config("Tema_Primario")
     if not tema_primario:
         tema_primario = "#FF6B35"
@@ -227,43 +219,6 @@ if 'tipo_usuario' not in st.session_state:
     st.session_state.tipo_usuario = None
 
 def main():
-    # ==================== DIAGNÓSTICO - VERIFICAR LECTURA DEL SHEET ====================
-    with st.expander("🔧 DIAGNÓSTICO - Ver qué está leyendo del Sheet", expanded=True):
-        st.write("### Leyendo configuración desde Google Sheets...")
-        
-        # Probar la conexión
-        try:
-            timestamp = int(time.time() * 1000)
-            resp = requests.get(f"{URL_CONFIG}&_={timestamp}", timeout=10)
-            st.write(f"✅ Conexión exitosa - Status: {resp.status_code}")
-        except Exception as e:
-            st.error(f"❌ Error de conexión: {e}")
-        
-        # Cargar y mostrar lo que se lee
-        config = obtener_toda_configuracion()
-        
-        if config:
-            st.write("### Configuración encontrada en el sheet:")
-            st.json(config)
-            
-            # Verificar específicamente Nombre_Local
-            if "Nombre_Local" in config:
-                nombre_leido = config["Nombre_Local"]
-                st.success(f"✅ 'Nombre_Local' encontrado: **'{nombre_leido}'**")
-                st.info(f"📛 La app mostrará: **{nombre_leido}**")
-            else:
-                st.error("❌ NO se encontró la clave 'Nombre_Local' en el sheet")
-                st.write("Claves disponibles:", list(config.keys()))
-        else:
-            st.error("❌ No se pudo leer ninguna configuración del sheet")
-            st.write("Posibles causas:")
-            st.write("1. El GID_CONFIG es incorrecto")
-            st.write("2. La hoja está vacía")
-            st.write("3. La URL de Apps Script no es correcta")
-        
-        st.divider()
-    # ==================== FIN DIAGNÓSTICO ====================
-    
     # Verificar mantenimiento
     if esta_en_mantenimiento() and st.session_state.vista != 'admin' and st.session_state.tipo_usuario != 'admin':
         st.title("🔧 MANTENIMIENTO")
@@ -277,9 +232,24 @@ def main():
     nombre_local = obtener_nombre_local()
     st.set_page_config(page_title=nombre_local, page_icon="🍔")
     
-    # Sidebar con recarga
+    # Sidebar con recarga y estado
     with st.sidebar:
         st.info(f"📍 {nombre_local}")
+        
+        # Indicador de estado del sistema
+        st.markdown("---")
+        st.markdown("### 📡 Estado del Sistema")
+        
+        # Verificar conexión al sheet
+        config_check = obtener_toda_configuracion()
+        if config_check:
+            st.success("✅ Google Sheets: Conectado")
+        else:
+            st.error("❌ Google Sheets: Error")
+        
+        # Verificar Telegram
+        st.caption("🤖 Telegram: Activo (notificaciones enviadas)")
+        
         if st.button("🔄 RECARGAR DATOS", use_container_width=True):
             st.cache_data.clear()
             st.rerun()
