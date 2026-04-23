@@ -5,6 +5,8 @@ import time
 import re
 from io import StringIO
 import json
+from PIL import Image
+from io import BytesIO
 
 # ==================== CONFIGURACIÓN ====================
 URL_APPS_SCRIPT = "https://script.google.com/macros/s/AKfycbwn1XLeQTH0VI3ROo3iu9-vDy4Cs211ClMCYgTC5RsOOnvIQoafVb7sze22qZVhApQfCQ/exec"
@@ -131,6 +133,18 @@ def aplicar_tema():
         .stButton > button:hover {{
             background-color: {tema_secundario};
         }}
+        .product-card {{
+            border: 1px solid #ddd;
+            border-radius: 10px;
+            padding: 15px;
+            margin: 10px 0;
+            background-color: white;
+        }}
+        .product-img {{
+            width: 100%;
+            border-radius: 10px;
+            margin-bottom: 10px;
+        }}
         </style>
     """, unsafe_allow_html=True)
 
@@ -218,41 +232,131 @@ if 'carrito' not in st.session_state:
 if 'tipo_usuario' not in st.session_state:
     st.session_state.tipo_usuario = None
 
+def mostrar_productos_cliente():
+    """Muestra productos con imágenes, variedades y precios"""
+    df = cargar_datos_sin_cache(URL_PRODUCTOS)
+    
+    if df.empty:
+        st.warning("No hay productos disponibles")
+        return
+    
+    # Agrupar por categoría
+    categorias = df['Categoria'].unique() if 'Categoria' in df.columns else ['Productos']
+    
+    for categoria in categorias:
+        st.subheader(f"📌 {categoria}")
+        
+        productos_cat = df[df['Categoria'] == categoria] if 'Categoria' in df.columns else df
+        
+        for _, row in productos_cat.iterrows():
+            with st.container(border=True):
+                col1, col2 = st.columns([1, 2])
+                
+                # Columna de imagen
+                with col1:
+                    imagen_url = row.get('Imagen', '')
+                    if imagen_url and imagen_url != '' and imagen_url != 'nan':
+                        try:
+                            st.image(imagen_url, use_container_width=True)
+                        except:
+                            st.write("📷 Sin imagen")
+                    else:
+                        st.write("🍔")
+                
+                # Columna de información
+                with col2:
+                    producto = row.get('Producto', 'Sin nombre')
+                    st.markdown(f"### {producto}")
+                    
+                    # Ingredientes
+                    ingredientes = row.get('Ingredientes', '')
+                    if ingredientes and ingredientes != 'nan':
+                        with st.expander("📋 Ingredientes"):
+                            st.write(ingredientes)
+                    
+                    # Variedades y precios
+                    variedades = row.get('Variedades', '')
+                    precios = row.get('Precio', '')
+                    
+                    if variedades and variedades != 'nan':
+                        variedades_lista = [v.strip() for v in str(variedades).split(';')]
+                        precios_lista = [p.strip() for p in str(precios).split(';')] if precios != 'nan' else []
+                        
+                        for j, var in enumerate(variedades_lista):
+                            precio_var = precios_lista[j] if j < len(precios_lista) else '0'
+                            precio_num = limpiar_precio(precio_var)
+                            
+                            col_a, col_b, col_c = st.columns([2, 1, 1])
+                            with col_a:
+                                st.write(f"**{var}**")
+                            with col_b:
+                                st.write(formatear_moneda(precio_num))
+                            with col_c:
+                                if st.button(f"Añadir {var}", key=f"add_{producto}_{j}"):
+                                    item_key = f"{producto} - {var}"
+                                    st.session_state.carrito[item_key] = {
+                                        'nombre': item_key,
+                                        'precio': precio_num,
+                                        'cantidad': st.session_state.carrito.get(item_key, {}).get('cantidad', 0) + 1
+                                    }
+                                    st.toast(f"✓ Añadido: {var}", icon="🍔")
+                                    st.rerun()
+                    else:
+                        # Producto simple sin variedades
+                        precio_num = limpiar_precio(precios)
+                        col_a, col_b = st.columns([2, 1])
+                        with col_a:
+                            st.write(f"**{producto}**")
+                        with col_b:
+                            st.write(formatear_moneda(precio_num))
+                        
+                        if st.button(f"Añadir {producto}", key=f"add_simple_{_}"):
+                            st.session_state.carrito[producto] = {
+                                'nombre': producto,
+                                'precio': precio_num,
+                                'cantidad': st.session_state.carrito.get(producto, {}).get('cantidad', 0) + 1
+                            }
+                            st.toast(f"✓ Añadido: {producto}", icon="🍔")
+                            st.rerun()
+
 def main():
     # Verificar mantenimiento
     if esta_en_mantenimiento() and st.session_state.vista != 'admin' and st.session_state.tipo_usuario != 'admin':
         st.title("🔧 MANTENIMIENTO")
         st.warning("Sistema en mantenimiento")
-        if st.button("🔐 Admin"):
-            st.session_state.vista = 'login'
-            st.rerun()
-        return
+        st.stop()
     
     aplicar_tema()
     nombre_local = obtener_nombre_local()
     st.set_page_config(page_title=nombre_local, page_icon="🍔")
     
-    # Sidebar con recarga y estado
-    with st.sidebar:
-        st.info(f"📍 {nombre_local}")
-        
-        # Indicador de estado del sistema
-        st.markdown("---")
-        st.markdown("### 📡 Estado del Sistema")
-        
-        # Verificar conexión al sheet
-        config_check = obtener_toda_configuracion()
-        if config_check:
-            st.success("✅ Google Sheets: Conectado")
-        else:
-            st.error("❌ Google Sheets: Error")
-        
-        # Verificar Telegram
-        st.caption("🤖 Telegram: Activo (notificaciones enviadas)")
-        
-        if st.button("🔄 RECARGAR DATOS", use_container_width=True):
-            st.cache_data.clear()
-            st.rerun()
+    # Sidebar - Solo visible para admin
+    if st.session_state.tipo_usuario in ['admin', 'usuario']:
+        with st.sidebar:
+            st.info(f"📍 {nombre_local}")
+            st.markdown("---")
+            st.markdown(f"👤 **Usuario:** {st.session_state.tipo_usuario.upper()}")
+            
+            # Estado del sistema
+            st.markdown("### 📡 Estado")
+            config_check = obtener_toda_configuracion()
+            if config_check:
+                st.success("✅ Sheets conectado")
+            else:
+                st.error("❌ Sheets error")
+            
+            st.caption("🤖 Telegram activo")
+            
+            st.markdown("---")
+            if st.button("🚪 Cerrar Sesión", use_container_width=True):
+                st.session_state.tipo_usuario = None
+                st.session_state.vista = 'inicio'
+                st.session_state.carrito = {}
+                st.rerun()
+            
+            if st.button("🔄 Recargar Datos", use_container_width=True):
+                st.cache_data.clear()
+                st.rerun()
     
     # VISTA INICIO
     if st.session_state.vista == 'inicio':
@@ -279,7 +383,7 @@ def main():
     
     # LOGIN
     elif st.session_state.vista == 'login':
-        st.subheader("🔐 Acceso")
+        st.subheader("🔐 Acceso Administrativo")
         
         if st.button("⬅ Volver"):
             st.session_state.vista = 'inicio'
@@ -302,9 +406,9 @@ def main():
     # PANEL ADMIN
     elif st.session_state.vista == 'admin':
         es_admin = (st.session_state.tipo_usuario == "admin")
-        st.subheader(f"⚙️ Panel de {'ADMIN' if es_admin else 'USUARIO'}")
+        st.subheader(f"⚙️ Panel de {'ADMINISTRADOR' if es_admin else 'USUARIO'}")
         
-        if st.button("⬅ Volver"):
+        if st.button("⬅ Volver al Inicio"):
             st.session_state.vista = 'inicio'
             st.session_state.tipo_usuario = None
             st.rerun()
@@ -347,50 +451,55 @@ def main():
         
         # TAB PRODUCTOS
         with tabs[1]:
-            with st.expander("➕ Nuevo Producto"):
-                with st.form("producto"):
-                    nombre_prod = st.text_input("Nombre")
-                    precio_prod = st.number_input("Precio", min_value=0)
-                    if st.form_submit_button("Guardar"):
-                        if guardar_producto(nombre_prod, precio_prod):
-                            st.success("✅ Producto guardado")
-                            time.sleep(1)
-                            st.rerun()
+            st.subheader("Gestión de Productos")
+            st.info("Para editar productos, ve directamente a Google Sheets")
+            st.markdown(f"[Abrir Google Sheets](https://docs.google.com/spreadsheets/d/{ID_SHEET}/edit#gid={GID_PRODUCTOS})")
             
+            # Vista previa de productos
             df = cargar_datos_sin_cache(URL_PRODUCTOS)
             if not df.empty:
+                st.write("### Productos actuales")
                 for i, row in df.iterrows():
-                    c1, c2, c3 = st.columns([3, 1, 1])
-                    with c1:
-                        st.write(row.iloc[0])
-                    with c2:
-                        st.write(formatear_moneda(limpiar_precio(row.iloc[1])))
-                    with c3:
-                        if st.button("🗑️", key=f"del_{i}"):
-                            eliminar_producto(row.iloc[0])
-                            st.rerun()
+                    with st.container(border=True):
+                        col1, col2 = st.columns([3, 1])
+                        with col1:
+                            st.write(f"**{row.get('Producto', 'Sin nombre')}**")
+                            st.caption(f"Categoría: {row.get('Categoria', 'N/A')}")
+                            st.caption(f"Variedades: {row.get('Variedades', 'N/A')}")
+                        with col2:
+                            st.write(f"💰 {row.get('Precio', 'N/A')}")
+                            disponible = row.get('Disponible', 'NO')
+                            if disponible == 'SI':
+                                st.success("✅ Disponible")
+                            else:
+                                st.error("❌ No disponible")
         
         # TAB PEDIDOS
         with tabs[2]:
             if st.button("🔄 Refrescar Pedidos"):
+                st.cache_data.clear()
                 st.rerun()
             
             df_ped = cargar_datos_sin_cache(URL_PEDIDOS)
             if not df_ped.empty:
-                for _, row in df_ped.tail(10).iterrows():
+                for _, row in df_ped.tail(20).iloc[::-1].iterrows():
                     with st.container(border=True):
                         fecha = row.iloc[0] if len(row) > 0 else "Sin fecha"
                         nombre = row.iloc[2] if len(row) > 2 else "N/A"
+                        dni = row.iloc[1] if len(row) > 1 else "N/A"
                         direccion = row.iloc[3] if len(row) > 3 else "N/A"
                         detalle = row.iloc[4] if len(row) > 4 else "N/A"
                         total = formatear_moneda(limpiar_precio(row.iloc[5] if len(row) > 5 else 0))
                         estado = row.iloc[6] if len(row) > 6 else "Pendiente"
                         
-                        st.write(f"**{fecha}** - {nombre}")
+                        st.write(f"**{fecha}** - #{dni}")
+                        st.write(f"👤 {nombre}")
                         st.write(f"📍 {direccion}")
                         st.write(f"📝 {detalle}")
                         st.write(f"💰 {total}")
                         st.write(f"📊 Estado: **{estado}**")
+            else:
+                st.info("No hay pedidos registrados")
         
         # TAB PERSONALIZACIÓN
         with tabs[3]:
@@ -431,14 +540,16 @@ def main():
                         st.success("✅ Credenciales guardadas")
                         st.rerun()
     
-    # VISTA PEDIDO
+    # VISTA PEDIDO (CLIENTE)
     elif st.session_state.vista == 'pedir':
-        if st.button("⬅ Volver"):
+        if st.button("⬅ Volver al Inicio"):
             st.session_state.vista = 'inicio'
+            st.session_state.carrito = {}
             st.rerun()
         
         if 'user_dni' not in st.session_state:
             with st.form("cliente"):
+                mostrar_logo()
                 st.write(f"Bienvenido a **{nombre_local}**")
                 nombre = st.text_input("Tu Nombre")
                 dni = st.text_input("Tu DNI (sin puntos)")
@@ -459,36 +570,31 @@ def main():
                             st.rerun()
             return
         
-        st.subheader("📋 NUESTRA CARTA")
+        # Mostrar productos
+        mostrar_productos_cliente()
         
-        df = cargar_datos_sin_cache(URL_PRODUCTOS)
-        if not df.empty:
-            for i, row in df.iterrows():
-                with st.container(border=True):
-                    c1, c2, c3 = st.columns([3, 1, 1])
-                    with c1:
-                        st.write(f"**{row.iloc[0]}**")
-                    with c2:
-                        p = limpiar_precio(row.iloc[1])
-                        st.write(formatear_moneda(p))
-                    with c3:
-                        if st.button("➕ Añadir", key=f"add_{i}"):
-                            st.session_state.carrito[row.iloc[0]] = st.session_state.carrito.get(row.iloc[0], 0) + 1
-                            st.toast(f"✓ Añadido: {row.iloc[0]}", icon="🍔")
-                            st.rerun()
-        
+        # Carrito
         if st.session_state.carrito:
             st.divider()
             st.subheader("🛒 TU CARRITO")
             resumen = ""
             total = 0
-            for k, v in st.session_state.carrito.items():
-                st.write(f"{v}x {k}")
-                resumen += f"• {v}x {k}\n"
+            
+            for key, item in st.session_state.carrito.items():
+                cantidad = item['cantidad']
+                precio = item['precio']
+                subtotal = cantidad * precio
+                total += subtotal
+                st.write(f"{cantidad}x {key} - {formatear_moneda(subtotal)}")
+                resumen += f"• {cantidad}x {key}\n"
             
             costo_delivery = int(obtener_valor_config("Costo_Delivery") or 0)
             if st.session_state.get('user_direccion', '') != "Retira en local" and costo_delivery > 0:
-                st.info(f"🚚 Costo de delivery: {formatear_moneda(costo_delivery)}")
+                st.info(f"🚚 Delivery: {formatear_moneda(costo_delivery)}")
+                total += costo_delivery
+                resumen += f"• Delivery: {formatear_moneda(costo_delivery)}\n"
+            
+            st.markdown(f"### TOTAL: {formatear_moneda(total)}")
             
             col1, col2 = st.columns(2)
             with col1:
@@ -496,12 +602,12 @@ def main():
                     st.session_state.carrito = {}
                     st.rerun()
             with col2:
-                if st.button("🚀 ENVIAR PEDIDO", type="primary"):
+                if st.button("🚀 CONFIRMAR PEDIDO", type="primary"):
                     mgr = PedidoManager()
                     direccion_final = st.session_state.get('user_direccion', 'Retira en local')
                     if mgr.registrar(st.session_state.user_dni, st.session_state.user_name, resumen, total, direccion_final):
                         mgr.notificar_telegram(st.session_state.user_name, st.session_state.user_dni, direccion_final, resumen, total)
-                        st.success("✅ ¡Pedido enviado!")
+                        st.success("✅ ¡Pedido enviado con éxito!")
                         st.balloons()
                         st.session_state.carrito = {}
                         st.session_state.pop('user_name', None)
