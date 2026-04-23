@@ -43,13 +43,36 @@ def cargar_datos_sin_cache(url):
         return pd.DataFrame()
 
 def obtener_toda_configuracion():
-    """Lee TODA la configuración del sheet con los nombres exactos"""
+    """Lee la configuración del sheet"""
     try:
         df = cargar_datos_sin_cache(URL_CONFIG)
         config = {}
         
         if df.empty:
             return config
+        
+        # Leer todas las filas
+        for i in range(len(df)):
+            clave = str(df.iloc[i, 0]).strip()
+            valor = str(df.iloc[i, 1]).strip() if len(df.columns) > 1 else ""
+            
+            if clave and clave != "nan":
+                config[clave] = valor
+        
+        return config
+    except:
+        return {}
+
+def obtener_nombre_local():
+    """Obtiene el nombre del local"""
+    config = obtener_toda_configuracion()
+    
+    # Buscar Nombre_Local
+    if "Nombre_Local" in config:
+        return config["Nombre_Local"]
+    
+    # Si no funciona, poner manualmente
+    return "HAMBURGUESAS REGIONAL QUINTA"
         
         # Las columnas son: primera columna = clave, segunda columna = valor
         for idx, row in df.iterrows():
