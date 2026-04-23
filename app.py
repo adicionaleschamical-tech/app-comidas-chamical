@@ -9,7 +9,7 @@ import json
 import base64
 
 # ==================== CONFIGURACIÓN ====================
-URL_APPS_SCRIPT = "https://script.google.com/macros/s/AKfycbwn1XLeQTH0VI3ROo3iu9-vDy4Cs211ClMCYgTC5RsOOnvIQoafVb7sze22qZVhApQfCQ/exec"
+URL_APPS_SCRIPT = "https://script.google.com/macros/s/AKfycbxB04ECT6uxBh3imK4knWR6yv2IkazwSISw3KvtXB3dLc4vDfZB_q2mAha7fOvZ-IXuLw/exec"
 
 ID_SHEET = "1WcVWos3p9NJKKEpY2L1-gmKhEkZJH1FL8Hy5bNqHyRA"
 GID_CONFIG = "612320365"
