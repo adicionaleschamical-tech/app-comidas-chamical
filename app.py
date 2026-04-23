@@ -7,7 +7,7 @@ from io import StringIO
 import json
 
 # ==================== CONFIGURACIÓN ====================
-URL_APPS_SCRIPT = "https://script.google.com/macros/s/AKfycbzWdtg415Vow20GJXEmZIOojHaUq0Lp5pSCGRIpUrVfxIVTybSh4qcO7gyrAdKP3tRAGA/exec"
+URL_APPS_SCRIPT = "https://script.google.com/macros/s/AKfycbwn1XLeQTH0VI3ROo3iu9-vDy4Cs211ClMCYgTC5RsOOnvIQoafVb7sze22qZVhApQfCQ/exec"
 
 ID_SHEET = "1WcVWos3p9NJKKEpY2L1-gmKhEkZJH1FL8Hy5bNqHyRA"
 GID_CONFIG = "612320365"
@@ -43,7 +43,7 @@ def cargar_datos_sin_cache(url):
         return pd.DataFrame()
 
 def obtener_toda_configuracion():
-    """Lee la configuración del sheet"""
+    """Lee TODA la configuración del sheet con los nombres exactos"""
     try:
         df = cargar_datos_sin_cache(URL_CONFIG)
         config = {}
@@ -56,36 +56,11 @@ def obtener_toda_configuracion():
             clave = str(df.iloc[i, 0]).strip()
             valor = str(df.iloc[i, 1]).strip() if len(df.columns) > 1 else ""
             
-            if clave and clave != "nan":
+            # Limpiar caracteres raros
+            valor = valor.replace("Â°", "°").replace("NÂ°", "N°")
+            
+            if clave and clave != "nan" and clave != "None":
                 config[clave] = valor
-        
-        return config
-    except:
-        return {}
-
-def obtener_nombre_local():
-    """Obtiene el nombre del local"""
-    config = obtener_toda_configuracion()
-    
-    # Buscar Nombre_Local
-    if "Nombre_Local" in config:
-        return config["Nombre_Local"]
-    
-    # Si no funciona, poner manualmente
-    return "HAMBURGUESAS REGIONAL QUINTA"
-        
-        # Las columnas son: primera columna = clave, segunda columna = valor
-        for idx, row in df.iterrows():
-            if len(row) >= 2:
-                clave = str(row.iloc[0]).strip()
-                valor = str(row.iloc[1]).strip() if pd.notna(row.iloc[1]) else ""
-                
-                # Limpiar caracteres raros
-                valor = valor.replace("Â°", "°").replace("NÂ°", "N°")
-                
-                # Guardar solo claves válidas
-                if clave and clave != "nan" and clave != "None":
-                    config[clave] = valor
         
         return config
     except Exception as e:
@@ -95,7 +70,6 @@ def obtener_valor_config(clave_exacta):
     """Obtiene un valor usando la clave EXACTA del sheet"""
     config = obtener_toda_configuracion()
     
-    # Buscar con la clave exacta
     if clave_exacta in config:
         valor = config[clave_exacta]
         return valor if valor and valor != "nan" else ""
@@ -250,6 +224,43 @@ if 'tipo_usuario' not in st.session_state:
     st.session_state.tipo_usuario = None
 
 def main():
+    # ==================== DIAGNÓSTICO - VERIFICAR LECTURA DEL SHEET ====================
+    with st.expander("🔧 DIAGNÓSTICO - Ver qué está leyendo del Sheet", expanded=True):
+        st.write("### Leyendo configuración desde Google Sheets...")
+        
+        # Probar la conexión
+        try:
+            timestamp = int(time.time() * 1000)
+            resp = requests.get(f"{URL_CONFIG}&_={timestamp}", timeout=10)
+            st.write(f"✅ Conexión exitosa - Status: {resp.status_code}")
+        except Exception as e:
+            st.error(f"❌ Error de conexión: {e}")
+        
+        # Cargar y mostrar lo que se lee
+        config = obtener_toda_configuracion()
+        
+        if config:
+            st.write("### Configuración encontrada en el sheet:")
+            st.json(config)
+            
+            # Verificar específicamente Nombre_Local
+            if "Nombre_Local" in config:
+                nombre_leido = config["Nombre_Local"]
+                st.success(f"✅ 'Nombre_Local' encontrado: **'{nombre_leido}'**")
+                st.info(f"📛 La app mostrará: **{nombre_leido}**")
+            else:
+                st.error("❌ NO se encontró la clave 'Nombre_Local' en el sheet")
+                st.write("Claves disponibles:", list(config.keys()))
+        else:
+            st.error("❌ No se pudo leer ninguna configuración del sheet")
+            st.write("Posibles causas:")
+            st.write("1. El GID_CONFIG es incorrecto")
+            st.write("2. La hoja está vacía")
+            st.write("3. La URL de Apps Script no es correcta")
+        
+        st.divider()
+    # ==================== FIN DIAGNÓSTICO ====================
+    
     # Verificar mantenimiento
     if esta_en_mantenimiento() and st.session_state.vista != 'admin' and st.session_state.tipo_usuario != 'admin':
         st.title("🔧 MANTENIMIENTO")
@@ -326,10 +337,6 @@ def main():
             st.rerun()
         
         config = obtener_toda_configuracion()
-        
-        # Mostrar valores actuales (debug)
-        with st.expander("📋 Configuración actual del sheet"):
-            st.json(config)
         
         if es_admin:
             tabs = st.tabs(["🏪 General", "🍔 Productos", "📊 Pedidos", "🎨 Personalización", "🔐 Seguridad"])
@@ -421,7 +428,7 @@ def main():
                 logo = st.text_input("URL Logo", config.get("Logo_URL", ""))
                 icono = st.text_input("Icono", config.get("icono", "🍔"))
                 font = st.selectbox("Fuente", ["'Poppins', sans-serif", "'Arial', sans-serif", "'Roboto', sans-serif"], 
-                                   index=0 if config.get("Font_Family", "").find("Poppins") >= 0 else 0)
+                                   index=0 if "Poppins" in config.get("Font_Family", "") else 0)
                 
                 if st.form_submit_button("Guardar"):
                     guardar_configuracion("Tema_Primario", color1)
