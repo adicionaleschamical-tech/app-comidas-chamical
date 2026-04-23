@@ -7,7 +7,7 @@ from io import StringIO
 import json
 
 # ==================== CONFIGURACIÓN ====================
-URL_APPS_SCRIPT = "https://script.google.com/macros/s/AKfycbwn1XLeQTH0VI3ROo3iu9-vDy4Cs211ClMCYgTC5RsOOnvIQoafVb7sze22qZVhApQfCQ/exec"
+URL_APPS_SCRIPT = "https://script.google.com/macros/s/AKfycbxtSvR607JdhJUHnR36hpohG48vzk0P9gFEVo6541pljj6BcZ59z3x6nzEW45vUwCM6/exec"
 
 ID_SHEET = "1WcVWos3p9NJKKEpY2L1-gmKhEkZJH1FL8Hy5bNqHyRA"
 GID_CONFIG = "612320365"
