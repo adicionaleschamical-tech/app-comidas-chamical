@@ -4,11 +4,10 @@ import requests
 import time
 import re
 from io import StringIO
-from datetime import datetime
 import json
 
 # ==================== CONFIGURACIÓN ====================
-URL_APPS_SCRIPT = "https://script.google.com/macros/s/AKfycbwqueCR9XaCqwi31_eg94r4GGxNT8fxAavkad5JreWGekDHJ0pOi7vfs_L-L1cPTye6KQ/exec"
+URL_APPS_SCRIPT = "https://script.google.com/macros/s/AKfycbwn1XLeQTH0VI3ROo3iu9-vDy4Cs211ClMCYgTC5RsOOnvIQoafVb7sze22qZVhApQfCQ/exec"
 
 ID_SHEET = "1WcVWos3p9NJKKEpY2L1-gmKhEkZJH1FL8Hy5bNqHyRA"
 GID_CONFIG = "612320365"
@@ -22,7 +21,7 @@ URL_PRODUCTOS = f"https://docs.google.com/spreadsheets/d/{ID_SHEET}/export?forma
 URL_CONFIG = f"https://docs.google.com/spreadsheets/d/{ID_SHEET}/export?format=csv&gid={GID_CONFIG}"
 URL_PEDIDOS = f"https://docs.google.com/spreadsheets/d/{ID_SHEET}/export?format=csv&gid={GID_PEDIDOS}"
 
-# ==================== FUNCIONES UNIVERSALES ====================
+# ==================== FUNCIONES ====================
 def limpiar_precio(texto):
     if pd.isna(texto) or str(texto).strip() == "":
         return 0
@@ -32,7 +31,7 @@ def limpiar_precio(texto):
 def formatear_moneda(valor):
     return f"$ {int(valor):,}".replace(",", ".")
 
-@st.cache_data(ttl=60)
+@st.cache_data(ttl=30)
 def cargar_datos(url):
     try:
         resp = requests.get(f"{url}&cb={int(time.time())}", timeout=10)
@@ -50,12 +49,16 @@ def obtener_toda_configuracion():
         if df.empty:
             return config
         
-        # Siempre usar primera columna como clave, segunda como valor
-        if len(df.columns) >= 2:
-            for _, row in df.iterrows():
-                clave = str(row.iloc[0]).strip() if pd.notna(row.iloc[0]) else ""
+        # Buscar la fila con el nombre del local específicamente
+        for idx, row in df.iterrows():
+            if len(row) >= 2:
+                clave = str(row.iloc[0]).strip()
                 valor = str(row.iloc[1]).strip() if pd.notna(row.iloc[1]) else ""
-                if clave and clave != "nan":
+                
+                # Limpiar caracteres raros
+                valor = valor.replace("Â°", "°").replace("NÂ°", "N°")
+                
+                if clave and clave != "nan" and clave.lower() not in ["clave", "parametro", "config"]:
                     config[clave] = valor
         
         return config
@@ -66,11 +69,11 @@ def obtener_valor_config(clave, valor_defecto=""):
     """Obtiene un valor de configuración"""
     config = obtener_toda_configuracion()
     
-    # Buscar exactamente igual
+    # Buscar exactamente
     if clave in config:
         return config[clave]
     
-    # Buscar sin importar mayúsculas/minúsculas
+    # Buscar sin importar mayúsculas
     for k, v in config.items():
         if k.lower() == clave.lower():
             return v
@@ -78,14 +81,14 @@ def obtener_valor_config(clave, valor_defecto=""):
     return valor_defecto
 
 def obtener_nombre_local():
-    """Obtiene el nombre del local"""
+    """Obtiene el nombre del local correctamente"""
     nombre = obtener_valor_config("Nombre_Local", "")
-    if nombre:
+    if nombre and nombre != "":
         return nombre
-    return "MI NEGOCIO"
+    return "HAMBURGUESAS REGIONAL QUINTA"
 
 def verificar_credenciales(tipo, valor_ingresado):
-    """Verifica credenciales desde el sheet"""
+    """Verifica credenciales"""
     if tipo == "admin":
         pass_correcta = obtener_valor_config("Admin_Pass", "")
         dni_correcto = obtener_valor_config("Admin_DNI", "")
@@ -120,10 +123,11 @@ def aplicar_tema():
         .stButton > button {{
             background-color: {tema_primario};
             color: white;
-            font-family: {font_family};
+            font-weight: bold;
         }}
         .stButton > button:hover {{
             background-color: {tema_secundario};
+            transform: scale(1.02);
         }}
         h1, h2, h3, h4, h5, h6, p, div, .stMarkdown {{
             font-family: {font_family};
@@ -149,7 +153,6 @@ def guardar_configuracion(parametro, valor):
         r = requests.get(URL_APPS_SCRIPT, params=params, timeout=15)
         return "OK" in r.text
     except Exception as e:
-        st.error(f"Error: {e}")
         return False
 
 def guardar_producto(producto, precio):
@@ -162,7 +165,6 @@ def guardar_producto(producto, precio):
         r = requests.get(URL_APPS_SCRIPT, params=params, timeout=15)
         return "OK" in r.text
     except Exception as e:
-        st.error(f"Error: {e}")
         return False
 
 def eliminar_producto(producto):
@@ -174,7 +176,6 @@ def eliminar_producto(producto):
         r = requests.get(URL_APPS_SCRIPT, params=params, timeout=15)
         return "OK" in r.text
     except Exception as e:
-        st.error(f"Error: {e}")
         return False
 
 # ==================== CLASE PEDIDO ====================
@@ -192,11 +193,9 @@ class PedidoManager:
             r = requests.get(URL_APPS_SCRIPT, params=params, timeout=15)
             return "OK" in r.text
         except Exception as e:
-            st.error(f"Error: {e}")
             return False
 
     def notificar_telegram(self, nombre, dni, direccion, detalle, total):
-        costo_delivery = obtener_valor_config("Costo_Delivery", "0")
         keyboard = {
             "inline_keyboard": [
                 [{"text": "👨‍🍳 Preparando", "callback_data": f"est_Preparando_{dni}"},
@@ -205,9 +204,6 @@ class PedidoManager:
             ]
         }
         msg = f"🔔 *NUEVO PEDIDO*\n\n👤 {nombre}\n🆔 DNI: {dni}\n📍 {direccion}\n\n*Detalle:*\n{detalle}\n💰 *TOTAL: {formatear_moneda(total)}*"
-        
-        if int(costo_delivery) > 0 and direccion != "Retira en local":
-            msg += f"\n🚚 *Delivery: {formatear_moneda(int(costo_delivery))}*"
         
         try:
             requests.post(f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage", 
@@ -222,36 +218,22 @@ if 'carrito' not in st.session_state:
     st.session_state.carrito = {}
 if 'tipo_usuario' not in st.session_state:
     st.session_state.tipo_usuario = None
-if 'usuario_autenticado' not in st.session_state:
-    st.session_state.usuario_autenticado = False
 
 def main():
-    # Verificar modo mantenimiento
+    # Verificar mantenimiento
     if esta_en_mantenimiento() and st.session_state.vista != 'admin' and st.session_state.tipo_usuario != 'admin':
         st.title("🔧 MANTENIMIENTO")
-        st.warning("El sistema está en mantenimiento. Los pedidos no están disponibles temporalmente.")
-        
-        if st.button("🔐 Acceso Administrador"):
+        st.warning("Sistema en mantenimiento")
+        if st.button("🔐 Admin"):
             st.session_state.vista = 'login'
             st.rerun()
         return
     
-    # Aplicar tema visual
     aplicar_tema()
+    nombre_local = obtener_nombre_local()
+    st.set_page_config(page_title=nombre_local, page_icon="🍔")
     
-    # Obtener nombre del local (FORZAR LECTURA DIRECTA)
-    config = obtener_toda_configuracion()
-    st.write("Debug - Configuración leída:", config)  # DEBUG: Ver qué se está leyendo
-    
-    nombre_local = config.get("Nombre_Local", "")
-    if not nombre_local:
-        nombre_local = config.get("nombre_local", "")
-    if not nombre_local:
-        nombre_local = "MI NEGOCIO"
-    
-    st.set_page_config(page_title=nombre_local, page_icon="🍔", layout="centered")
-    
-    # VISTA DE INICIO
+    # VISTA INICIO
     if st.session_state.vista == 'inicio':
         mostrar_logo()
         st.title(f"🍔 {nombre_local}")
@@ -260,7 +242,7 @@ def main():
         if horario:
             st.caption(f"🕒 {horario}")
         
-        telefono = obtener_valor_config("WhatsApp", obtener_valor_config("Telefono", ""))
+        telefono = obtener_valor_config("WhatsApp", "")
         if telefono:
             st.caption(f"📞 {telefono}")
         
@@ -276,287 +258,197 @@ def main():
     
     # LOGIN
     elif st.session_state.vista == 'login':
-        st.subheader("🔐 Acceso al Sistema")
+        st.subheader("🔐 Acceso")
         
         if st.button("⬅ Volver"):
             st.session_state.vista = 'inicio'
             st.rerun()
         
-        with st.form("login_form"):
+        with st.form("login"):
             credencial = st.text_input("DNI, Usuario o Contraseña", type="password")
             if st.form_submit_button("Ingresar"):
-                # Verificar si es admin
                 tipo = verificar_credenciales("admin", credencial)
-                if tipo:
-                    st.session_state.tipo_usuario = "admin"
-                    st.session_state.usuario_autenticado = True
-                    st.session_state.vista = 'admin'
-                    st.rerun()
-                
-                # Verificar si es usuario
-                tipo = verificar_credenciales("usuario", credencial)
-                if tipo:
-                    st.session_state.tipo_usuario = "usuario"
-                    st.session_state.usuario_autenticado = True
-                    st.session_state.vista = 'admin'
-                    st.rerun()
-                
                 if not tipo:
-                    st.error("❌ Credenciales incorrectas")
+                    tipo = verificar_credenciales("usuario", credencial)
+                
+                if tipo:
+                    st.session_state.tipo_usuario = tipo
+                    st.session_state.vista = 'admin'
+                    st.rerun()
+                else:
+                    st.error("❌ Credencial incorrecta")
     
-    # PANEL ADMIN (con permisos diferenciados)
+    # PANEL ADMIN
     elif st.session_state.vista == 'admin':
         es_admin = (st.session_state.tipo_usuario == "admin")
-        tipo_texto = "ADMINISTRADOR" if es_admin else "USUARIO"
-        st.subheader(f"⚙️ Panel de {tipo_texto} - {nombre_local}")
+        st.subheader(f"⚙️ Panel de {'ADMIN' if es_admin else 'USUARIO'}")
         
-        if not es_admin:
-            st.info("👤 Modo Usuario: Puedes editar configuración no sensible")
-        
-        if st.button("⬅ Volver al Inicio"):
+        if st.button("⬅ Volver"):
             st.session_state.vista = 'inicio'
             st.session_state.tipo_usuario = None
-            st.session_state.usuario_autenticado = False
             st.rerun()
         
-        config_actual = obtener_toda_configuracion()
+        config = obtener_toda_configuracion()
         
-        # Pestañas según permisos
+        # Pestañas
         if es_admin:
-            tabs = st.tabs(["🏪 Configuración General", "🍔 Productos", "📊 Pedidos", "🎨 Personalización", "🔐 Seguridad"])
+            tabs = st.tabs(["🏪 General", "🍔 Productos", "📊 Pedidos", "🎨 Personalización", "🔐 Seguridad"])
         else:
-            tabs = st.tabs(["🏪 Configuración General", "🍔 Productos", "📊 Pedidos", "🎨 Personalización"])
+            tabs = st.tabs(["🏪 General", "🍔 Productos", "📊 Pedidos", "🎨 Personalización"])
         
-        # TAB 1: CONFIGURACIÓN GENERAL (visible para ambos)
+        # TAB GENERAL
         with tabs[0]:
-            st.subheader("Configuración del Negocio")
-            
-            with st.form("editar_config_general"):
-                nombre = st.text_input("Nombre del Local", config_actual.get("Nombre_Local", ""))
-                direccion = st.text_area("Dirección", config_actual.get("Direccion_Local", ""))
-                telefono = st.text_input("Teléfono", config_actual.get("Telefono", ""))
-                whatsapp = st.text_input("WhatsApp", config_actual.get("WhatsApp", ""))
-                horario = st.text_input("Horario", config_actual.get("Horario", ""))
-                alias = st.text_input("Alias (Mercado Pago)", config_actual.get("Alias", ""))
-                costo_delivery = st.number_input("Costo de Delivery ($)", min_value=0, step=100, value=int(config_actual.get("Costo_Delivery", "0")))
+            with st.form("general"):
+                nombre = st.text_input("Nombre del Local", config.get("Nombre_Local", nombre_local))
+                direccion = st.text_area("Dirección", config.get("Direccion_Local", ""))
+                telefono = st.text_input("Teléfono", config.get("Telefono", ""))
+                whatsapp = st.text_input("WhatsApp", config.get("WhatsApp", ""))
+                horario = st.text_input("Horario", config.get("Horario", ""))
+                costo = st.number_input("Costo Delivery", min_value=0, value=int(config.get("Costo_Delivery", "500")))
                 
-                # Modo mantenimiento solo para admin
                 if es_admin:
-                    modo_mant = st.selectbox("Modo Mantenimiento", ["NO", "SI"], index=0 if config_actual.get("MODO_MANTENIMIENTO", "NO") == "NO" else 1)
-                else:
-                    modo_mant = config_actual.get("MODO_MANTENIMIENTO", "NO")
-                    st.info(f"Modo Mantenimiento actual: {modo_mant} (solo administrador puede cambiar)")
+                    mantenimiento = st.selectbox("Modo Mantenimiento", ["NO", "SI"], 
+                                                index=0 if config.get("MODO_MANTENIMIENTO", "NO") == "NO" else 1)
                 
-                if st.form_submit_button("💾 Guardar"):
+                if st.form_submit_button("Guardar"):
                     guardar_configuracion("Nombre_Local", nombre)
                     guardar_configuracion("Direccion_Local", direccion)
                     guardar_configuracion("Telefono", telefono)
                     guardar_configuracion("WhatsApp", whatsapp)
                     guardar_configuracion("Horario", horario)
-                    guardar_configuracion("Alias", alias)
-                    guardar_configuracion("Costo_Delivery", str(costo_delivery))
+                    guardar_configuracion("Costo_Delivery", str(costo))
                     if es_admin:
-                        guardar_configuracion("MODO_MANTENIMIENTO", modo_mant)
-                    
-                    st.success("✅ Configuración guardada")
+                        guardar_configuracion("MODO_MANTENIMIENTO", mantenimiento)
+                    st.success("✅ Guardado")
                     st.cache_data.clear()
                     time.sleep(1)
                     st.rerun()
         
-        # TAB 2: PRODUCTOS (visible para ambos)
+        # TAB PRODUCTOS
         with tabs[1]:
-            st.subheader("Gestión de Productos")
+            with st.expander("➕ Nuevo Producto"):
+                with st.form("producto"):
+                    nombre_prod = st.text_input("Nombre")
+                    precio_prod = st.number_input("Precio", min_value=0)
+                    if st.form_submit_button("Guardar"):
+                        if guardar_producto(nombre_prod, precio_prod):
+                            st.success("✅ Producto guardado")
+                            st.cache_data.clear()
+                            time.sleep(1)
+                            st.rerun()
             
-            with st.expander("➕ Agregar/Editar Producto"):
-                with st.form("form_producto"):
-                    nombre_producto = st.text_input("Nombre del Producto")
-                    precio_producto = st.number_input("Precio", min_value=0, step=100)
-                    
-                    if st.form_submit_button("💾 Guardar Producto"):
-                        if nombre_producto and precio_producto > 0:
-                            if guardar_producto(nombre_producto, precio_producto):
-                                st.success(f"✅ {nombre_producto} guardado")
-                                st.cache_data.clear()
-                                time.sleep(1)
-                                st.rerun()
-            
-            df_productos = cargar_datos(URL_PRODUCTOS)
-            if not df_productos.empty:
-                for idx, row in df_productos.iterrows():
-                    col1, col2, col3 = st.columns([3, 1, 1])
-                    with col1:
-                        st.write(f"**{row.iloc[0]}**")
-                    with col2:
+            df = cargar_datos(URL_PRODUCTOS)
+            if not df.empty:
+                for i, row in df.iterrows():
+                    c1, c2, c3 = st.columns([3, 1, 1])
+                    with c1:
+                        st.write(row.iloc[0])
+                    with c2:
                         st.write(formatear_moneda(limpiar_precio(row.iloc[1])))
-                    with col3:
-                        if st.button("🗑️", key=f"del_{idx}"):
-                            if eliminar_producto(row.iloc[0]):
-                                st.success(f"✅ Eliminado")
-                                st.cache_data.clear()
-                                time.sleep(1)
-                                st.rerun()
+                    with c3:
+                        if st.button("🗑️", key=f"del_{i}"):
+                            eliminar_producto(row.iloc[0])
+                            st.rerun()
         
-        # TAB 3: PEDIDOS (visible para ambos)
+        # TAB PEDIDOS
         with tabs[2]:
-            st.subheader("Historial de Pedidos")
             if st.button("🔄 Refrescar"):
                 st.cache_data.clear()
                 st.rerun()
             
-            df_pedidos = cargar_datos(URL_PEDIDOS)
-            if not df_pedidos.empty:
-                df_pedidos = df_pedidos.tail(20).iloc[::-1]
-                for idx, row in df_pedidos.iterrows():
+            df_ped = cargar_datos(URL_PEDIDOS)
+            if not df_ped.empty:
+                for _, row in df_ped.tail(10).iterrows():
                     with st.container(border=True):
-                        fecha = row.iloc[0] if len(row) > 0 else 'Sin fecha'
-                        nombre = row.iloc[2] if len(row) > 2 else 'N/A'
-                        dni = row.iloc[1] if len(row) > 1 else 'N/A'
-                        direccion = row.iloc[3] if len(row) > 3 else 'N/A'
-                        detalle = row.iloc[4] if len(row) > 4 else 'N/A'
-                        total = formatear_moneda(limpiar_precio(row.iloc[5] if len(row) > 5 else 0))
-                        estado = row.iloc[6] if len(row) > 6 else "Pendiente"
-                        
-                        st.write(f"**{fecha}**")
-                        st.write(f"👤 {nombre} - DNI: {dni}")
-                        st.write(f"📍 {direccion}")
-                        st.write(f"📝 {detalle}")
-                        st.write(f"💰 {total}")
-                        st.write(f"📊 Estado: **{estado}**")
+                        st.write(f"**{row.iloc[0]}** - {row.iloc[2]}")
+                        st.write(f"📍 {row.iloc[3]}")
+                        st.write(f"📝 {row.iloc[4]}")
+                        st.write(f"💰 {formatear_moneda(limpiar_precio(row.iloc[5]))}")
+                        st.write(f"📊 Estado: **{row.iloc[6] if len(row) > 6 else 'Pendiente'}**")
         
-        # TAB 4: PERSONALIZACIÓN (visible para ambos)
+        # TAB PERSONALIZACIÓN
         with tabs[3]:
-            st.subheader("Personalización Visual")
-            
             with st.form("personalizacion"):
-                tema_primario = st.color_picker("Color Principal", config_actual.get("Tema_Primario", "#FF6B35"))
-                tema_secundario = st.color_picker("Color Secundario", config_actual.get("Tema_Secundario", "#FF6B35"))
-                bg_color = st.color_picker("Color de Fondo", config_actual.get("Background_Color", "#FFF8F0"))
-                font_family = st.selectbox("Fuente", ["'Poppins', sans-serif", "'Arial', sans-serif", "'Roboto', sans-serif", "'Montserrat', sans-serif"], 
-                                          index=0)
-                logo_url = st.text_input("URL del Logo", config_actual.get("Logo_URL", ""))
-                icono = st.text_input("Icono (emoji)", config_actual.get("icono", "🍔"))
+                color1 = st.color_picker("Color Primario", config.get("Tema_Primario", "#FF6B35"))
+                color2 = st.color_picker("Color Secundario", config.get("Tema_Secundario", "#FF6B35"))
+                bg = st.color_picker("Fondo", config.get("Background_Color", "#FFF8F0"))
+                logo = st.text_input("URL Logo", config.get("Logo_URL", ""))
                 
-                if st.form_submit_button("💾 Guardar Personalización"):
-                    guardar_configuracion("Tema_Primario", tema_primario)
-                    guardar_configuracion("Tema_Secundario", tema_secundario)
-                    guardar_configuracion("Background_Color", bg_color)
-                    guardar_configuracion("Font_Family", font_family)
-                    guardar_configuracion("Logo_URL", logo_url)
-                    guardar_configuracion("icono", icono)
-                    st.success("✅ Personalización guardada")
+                if st.form_submit_button("Guardar"):
+                    guardar_configuracion("Tema_Primario", color1)
+                    guardar_configuracion("Tema_Secundario", color2)
+                    guardar_configuracion("Background_Color", bg)
+                    guardar_configuracion("Logo_URL", logo)
+                    st.success("✅ Guardado")
                     st.cache_data.clear()
-                    time.sleep(1)
                     st.rerun()
         
-        # TAB 5: SEGURIDAD (SOLO ADMIN)
+        # TAB SEGURIDAD (solo admin)
         if es_admin and len(tabs) > 4:
             with tabs[4]:
-                st.subheader("🔐 Configuración de Seguridad")
-                st.warning("⚠️ Estas configuraciones solo visibles para el Administrador")
-                
                 with st.form("seguridad"):
-                    admin_dni = st.text_input("DNI Administrador", config_actual.get("Admin_DNI", ""))
-                    admin_pass = st.text_input("Contraseña Administrador", config_actual.get("Admin_Pass", ""), type="password")
-                    user = st.text_input("Usuario", config_actual.get("User", ""))
-                    user_pass = st.text_input("Contraseña Usuario", config_actual.get("User_Pass", ""), type="password")
+                    admin_dni = st.text_input("DNI Admin", config.get("Admin_DNI", ""))
+                    admin_pass = st.text_input("Pass Admin", config.get("Admin_Pass", ""), type="password")
+                    user = st.text_input("Usuario", config.get("User", ""))
+                    user_pass = st.text_input("Pass Usuario", config.get("User_Pass", ""), type="password")
                     
-                    if st.form_submit_button("💾 Guardar Credenciales"):
+                    if st.form_submit_button("Guardar"):
                         guardar_configuracion("Admin_DNI", admin_dni)
                         guardar_configuracion("Admin_Pass", admin_pass)
                         guardar_configuracion("User", user)
                         guardar_configuracion("User_Pass", user_pass)
                         st.success("✅ Credenciales guardadas")
-                        st.cache_data.clear()
-                        time.sleep(1)
-                        st.rerun()
     
-    # VISTA DE PEDIDO
+    # VISTA PEDIDO
     elif st.session_state.vista == 'pedir':
-        if esta_en_mantenimiento():
-            st.warning("🔧 Sistema en mantenimiento. No se pueden tomar pedidos.")
-            if st.button("⬅ Volver"):
-                st.session_state.vista = 'inicio'
-                st.rerun()
-            return
-        
         if st.button("⬅ Volver"):
             st.session_state.vista = 'inicio'
-            st.session_state.carrito = {}
             st.rerun()
         
         if 'user_dni' not in st.session_state:
-            with st.form("login_cliente"):
-                mostrar_logo()
-                st.write(f"Bienvenido a **{nombre_local}**")
-                n = st.text_input("Tu Nombre")
-                d = st.text_input("Tu DNI (sin puntos)")
-                
-                delivery = st.checkbox("📦 Envío a domicilio")
-                direccion = ""
-                if delivery:
-                    direccion = st.text_area("Dirección de entrega")
-                
-                if st.form_submit_button("Ver Carta"):
-                    if n and d:
-                        if delivery and not direccion:
-                            st.error("Ingresa tu dirección")
-                        else:
-                            st.session_state.user_name = n
-                            st.session_state.user_dni = d
-                            st.session_state.user_direccion = direccion if delivery else "Retira en local"
-                            st.rerun()
+            with st.form("cliente"):
+                nombre = st.text_input("Tu Nombre")
+                dni = st.text_input("Tu DNI")
+                if st.form_submit_button("Continuar"):
+                    if nombre and dni:
+                        st.session_state.user_name = nombre
+                        st.session_state.user_dni = dni
+                        st.rerun()
             return
         
-        st.subheader("📋 Nuestra Carta")
-        
+        st.subheader("📋 CARTA")
         df = cargar_datos(URL_PRODUCTOS)
         if not df.empty:
             for i, row in df.iterrows():
-                with st.container(border=True):
-                    col1, col2, col3 = st.columns([3, 1, 1])
-                    with col1:
-                        st.write(f"**{row.iloc[0]}**")
-                    with col2:
-                        p = limpiar_precio(row.iloc[1])
-                        st.write(formatear_moneda(p))
-                    with col3:
-                        if st.button(f"Añadir", key=f"btn_{i}"):
-                            st.session_state.carrito[row.iloc[0]] = st.session_state.carrito.get(row.iloc[0], 0) + 1
-                            st.toast(f"✓ Añadido: {row.iloc[0]}", icon="🍔")
+                c1, c2, c3 = st.columns([3, 1, 1])
+                with c1:
+                    st.write(f"**{row.iloc[0]}**")
+                with c2:
+                    st.write(formatear_moneda(limpiar_precio(row.iloc[1])))
+                with c3:
+                    if st.button("➕", key=f"add_{i}"):
+                        st.session_state.carrito[row.iloc[0]] = st.session_state.carrito.get(row.iloc[0], 0) + 1
+                        st.rerun()
         
         if st.session_state.carrito:
             st.divider()
-            st.subheader("🛒 Tu Carrito")
+            st.subheader("🛒 CARRITO")
             resumen = ""
-            total = 0
             for k, v in st.session_state.carrito.items():
                 st.write(f"{v}x {k}")
-                resumen += f"• {v}x {k}\n"
+                resumen += f"{v}x {k}\n"
             
-            costo_delivery = int(obtener_valor_config("Costo_Delivery", "0"))
-            if st.session_state.get('user_direccion', '') != "Retira en local" and costo_delivery > 0:
-                st.info(f"🚚 Costo de delivery: {formatear_moneda(costo_delivery)}")
-            
-            col1, col2 = st.columns(2)
-            with col1:
-                if st.button("🗑️ Vaciar"):
+            if st.button("🚀 ENVIAR PEDIDO"):
+                mgr = PedidoManager()
+                if mgr.registrar(st.session_state.user_dni, st.session_state.user_name, resumen, 0, "Local"):
+                    mgr.notificar_telegram(st.session_state.user_name, st.session_state.user_dni, "Local", resumen, 0)
+                    st.success("✅ Pedido enviado")
                     st.session_state.carrito = {}
+                    del st.session_state.user_name
+                    del st.session_state.user_dni
+                    time.sleep(2)
+                    st.session_state.vista = 'inicio'
                     st.rerun()
-            with col2:
-                if st.button("🚀 ENVIAR PEDIDO", type="primary"):
-                    mgr = PedidoManager()
-                    direccion_final = st.session_state.get('user_direccion', 'Retira en local')
-                    if mgr.registrar(st.session_state.user_dni, st.session_state.user_name, resumen, total, direccion_final):
-                        mgr.notificar_telegram(st.session_state.user_name, st.session_state.user_dni, direccion_final, resumen, total)
-                        st.success("✅ ¡Pedido enviado!")
-                        st.balloons()
-                        st.session_state.carrito = {}
-                        st.session_state.pop('user_name', None)
-                        st.session_state.pop('user_dni', None)
-                        st.session_state.pop('user_direccion', None)
-                        time.sleep(2)
-                        st.session_state.vista = 'inicio'
-                        st.rerun()
 
 if __name__ == "__main__":
     main()
