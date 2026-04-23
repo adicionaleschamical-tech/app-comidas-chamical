@@ -8,7 +8,7 @@ from datetime import datetime
 import json
 
 # ==================== CONFIGURACIÓN ====================
-URL_APPS_SCRIPT = "https://script.google.com/macros/s/AKfycbwn1XLeQTH0VI3ROo3iu9-vDy4Cs211ClMCYgTC5RsOOnvIQoafVb7sze22qZVhApQfCQ/exec"
+URL_APPS_SCRIPT = "https://script.google.com/macros/s/AKfycbwqueCR9XaCqwi31_eg94r4GGxNT8fxAavkad5JreWGekDHJ0pOi7vfs_L-L1cPTye6KQ/exec"
 
 ID_SHEET = "1WcVWos3p9NJKKEpY2L1-gmKhEkZJH1FL8Hy5bNqHyRA"
 GID_CONFIG = "612320365"
