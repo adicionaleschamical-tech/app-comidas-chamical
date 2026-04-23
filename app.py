@@ -43,7 +43,7 @@ def cargar_datos_sin_cache(url):
         return pd.DataFrame()
 
 def obtener_toda_configuracion():
-    """Lee TODA la configuración del sheet con los nombres exactos"""
+    """Lee TODA la configuración - sin ignorar ninguna fila"""
     try:
         df = cargar_datos_sin_cache(URL_CONFIG)
         config = {}
@@ -51,21 +51,24 @@ def obtener_toda_configuracion():
         if df.empty:
             return config
         
-        # Leer todas las filas
+        # Recorrer CADA FILA sin excepción
         for i in range(len(df)):
             clave = str(df.iloc[i, 0]).strip()
             valor = str(df.iloc[i, 1]).strip() if len(df.columns) > 1 else ""
             
-            # Limpiar caracteres raros
+            # Limpiar valores
+            if valor == "nan" or valor == "None" or valor == "":
+                valor = ""
+            
             valor = valor.replace("Â°", "°").replace("NÂ°", "N°")
             
-            if clave and clave != "nan" and clave != "None":
+            # Guardar TODO (incluyendo Nombre_Local)
+            if clave and clave != "nan":
                 config[clave] = valor
         
         return config
     except Exception as e:
         return {}
-
 def obtener_valor_config(clave_exacta):
     """Obtiene un valor usando la clave EXACTA del sheet"""
     config = obtener_toda_configuracion()
