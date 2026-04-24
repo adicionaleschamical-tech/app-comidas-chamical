@@ -6,9 +6,10 @@ import re
 from io import StringIO
 import json
 from datetime import datetime
+import threading
 
 # ==================== CONFIGURACIÓN ====================
-URL_APPS_SCRIPT = "https://script.google.com/macros/s/AKfycbyQFAmG8j0-ArGZVPlQ0emt3MyFlFG1D0WP_s4gCKg488-1GuA1MZt8fw6kejlg6jJHog/exec"
+URL_APPS_SCRIPT = "https://script.google.com/macros/s/AKfycbwtcGVzIGbgJNo6Gmf92TkFEdDd8Okw_iO1yDhu_kzT2c9knUck34ecvgze48hXqWR4JQ/exec"
 
 ID_SHEET = "1WcVWos3p9NJKKEpY2L1-gmKhEkZJH1FL8Hy5bNqHyRA"
 GID_CONFIG = "612320365"
@@ -22,7 +23,7 @@ URL_PRODUCTOS = f"https://docs.google.com/spreadsheets/d/{ID_SHEET}/export?forma
 URL_CONFIG = f"https://docs.google.com/spreadsheets/d/{ID_SHEET}/export?format=csv&gid={GID_CONFIG}"
 URL_PEDIDOS = f"https://docs.google.com/spreadsheets/d/{ID_SHEET}/export?format=csv&gid={GID_PEDIDOS}"
 
-# ==================== FUNCIONES ====================
+# ==================== FUNCIONES GENERALES ====================
 def limpiar_precio(texto):
     if pd.isna(texto) or str(texto).strip() == "":
         return 0
@@ -176,6 +177,74 @@ def enviar_mensaje_telegram(mensaje, parse_mode="Markdown"):
     except:
         return False
 
+# ==================== POLLING PARA TELEGRAM ====================
+def procesar_callback(callback_data, callback_id, message):
+    """Procesa el callback cuando alguien presiona un botón"""
+    partes = callback_data.split('_')
+    
+    if len(partes) >= 3 and partes[0] == 'est':
+        nuevo_estado = partes[1]
+        dni = partes[2]
+        
+        # Actualizar en Google Sheets
+        params = {
+            "accion": "actualizar_estado",
+            "dni": dni,
+            "estado": nuevo_estado
+        }
+        try:
+            response = requests.get(URL_APPS_SCRIPT, params=params, timeout=15)
+            if "OK" in response.text:
+                # Responder al callback
+                url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/answerCallbackQuery"
+                requests.post(url, json={"callback_query_id": callback_id, "text": f"✅ Pedido actualizado a: {nuevo_estado}"})
+                
+                # Editar mensaje para quitar botones
+                nuevo_mensaje = message.get('text', '') + f"\n\n✅ *Estado actual: {nuevo_estado}*"
+                url_edit = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/editMessageText"
+                requests.post(url_edit, json={
+                    "chat_id": message['chat']['id'],
+                    "message_id": message['message_id'],
+                    "text": nuevo_mensaje,
+                    "parse_mode": "Markdown"
+                })
+        except Exception as e:
+            print(f"Error procesando callback: {e}")
+
+def polling_telegram():
+    """Revisa periódicamente si hay callbacks de Telegram"""
+    ultimo_update_id = 0
+    
+    while True:
+        try:
+            # Obtener actualizaciones de Telegram
+            url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/getUpdates"
+            params = {"offset": ultimo_update_id + 1, "timeout": 30}
+            response = requests.get(url, params=params, timeout=35)
+            data = response.json()
+            
+            if data.get('ok') and data.get('result'):
+                for update in data['result']:
+                    ultimo_update_id = update['update_id']
+                    
+                    # Procesar callback_query (botón presionado)
+                    if 'callback_query' in update:
+                        callback = update['callback_query']
+                        procesar_callback(
+                            callback.get('data', ''),
+                            callback.get('id', ''),
+                            callback.get('message', {})
+                        )
+        
+        except Exception as e:
+            print(f"Error en polling: {e}")
+            time.sleep(5)
+
+def iniciar_polling():
+    """Inicia el polling en un hilo separado"""
+    hilo = threading.Thread(target=polling_telegram, daemon=True)
+    hilo.start()
+
 # ==================== CLASE PEDIDO ====================
 class PedidoManager:
     def registrar(self, dni, nombre, detalle, total, direccion):
@@ -194,14 +263,12 @@ class PedidoManager:
             return False
 
     def notificar_telegram(self, nombre, dni, direccion, detalle, total):
-        """Envía notificación a Telegram con botones inline mejorados"""
-        # Limpiar el detalle para que no tenga caracteres problemáticos para Markdown
+        """Envía notificación a Telegram con botones inline"""
+        # Limpiar caracteres especiales para Markdown
         detalle_limpio = str(detalle).replace('_', '\\_').replace('*', '\\*').replace('[', '\\[').replace(']', '\\]').replace('`', '\\`')
         
-        # Formatear el total
         total_formateado = formatear_moneda(total)
         
-        # Crear teclado inline con botones
         keyboard = {
             "inline_keyboard": [
                 [
@@ -214,7 +281,6 @@ class PedidoManager:
             ]
         }
         
-        # Mensaje formateado
         msg = f"""🔔 *NUEVO PEDIDO*
 
 👤 *{nombre}*
