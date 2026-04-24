@@ -9,14 +9,14 @@ from datetime import datetime
 import threading
 
 # ==================== CONFIGURACIÓN ====================
-URL_APPS_SCRIPT = "https://script.google.com/macros/s/AKfycbwtcGVzIGbgJNo6Gmf92TkFEdDd8Okw_iO1yDhu_kzT2c9knUck34ecvgze48hXqWR4JQ/exec"
+URL_APPS_SCRIPT = "https://script.google.com/macros/s/AKfycbw_CiIllL__hJY3NUspTuX2op1OOJm-i3d2fZ0RVJHl/dev"
 
 ID_SHEET = "1WcVWos3p9NJKKEpY2L1-gmKhEkZJH1FL8Hy5bNqHyRA"
 GID_CONFIG = "612320365"
 GID_PRODUCTOS = "0"
 GID_PEDIDOS = "1395505058"
 
-TELEGRAM_TOKEN = "8215367070:AAF6NgYrM4EsK4E7bM_6iFf-Y_FB3Ni13Es"
+TELEGRAM_TOKEN = "8793126374:AAG5zIBWrUOq50Ku0zjXEe8joD_JlcCDURI"
 TELEGRAM_CHAT_ID = "7860013984"
 
 URL_PRODUCTOS = f"https://docs.google.com/spreadsheets/d/{ID_SHEET}/export?format=csv&gid={GID_PRODUCTOS}"
