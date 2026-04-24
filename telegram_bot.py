@@ -3,6 +3,7 @@ import requests
 import json
 import re
 import logging
+import os
 from datetime import datetime
 
 # ==================== CONFIGURACIÓN ====================
@@ -62,10 +63,18 @@ def editar_mensaje(chat_id, message_id, nuevo_texto):
         logger.error(f"Error editando mensaje: {e}")
         return False
 
-def notificar_estado_cambiado(chat_id, dni, estado_anterior, estado_nuevo):
-    """Envía una notificación de que el estado cambió"""
-    mensaje = f"🔄 *Cambio de estado*\n\nPedido #{dni}\n📦 De: {estado_anterior}\n➡️ A: {estado_nuevo}\n\n⏰ {datetime.now().strftime('%H:%M:%S')}"
-    
+def enviar_menu_bienvenida(chat_id):
+    """Envía mensaje de bienvenida con comandos disponibles"""
+    mensaje = """
+🤖 *Bot de Pedidos Activo*
+
+Comandos disponibles:
+/start - Mostrar este mensaje
+/help - Ayuda
+
+Los pedidos nuevos se notificarán automáticamente aquí.
+Usa los botones para actualizar el estado de cada pedido.
+"""
     try:
         url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
         data = {
@@ -75,7 +84,32 @@ def notificar_estado_cambiado(chat_id, dni, estado_anterior, estado_nuevo):
         }
         requests.post(url, json=data, timeout=10)
     except Exception as e:
-        logger.error(f"Error enviando notificación: {e}")
+        logger.error(f"Error enviando bienvenida: {e}")
+
+def enviar_ayuda(chat_id):
+    """Envía mensaje de ayuda"""
+    mensaje = """
+📖 *Ayuda del Bot*
+
+• Cuando llega un nuevo pedido, recibirás un mensaje con botones
+• Presiona el botón correspondiente para actualizar el estado del pedido
+• Los estados disponibles son:
+  - 👨‍🍳 Preparando
+  - 🛵 Enviado  
+  - ✅ Finalizado
+
+• Cada vez que cambies el estado, se actualizará automáticamente en Google Sheets
+"""
+    try:
+        url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+        data = {
+            "chat_id": chat_id,
+            "text": mensaje,
+            "parse_mode": "Markdown"
+        }
+        requests.post(url, json=data, timeout=10)
+    except Exception as e:
+        logger.error(f"Error enviando ayuda: {e}")
 
 # ==================== WEBHOOK PRINCIPAL ====================
 @app.route(f'/webhook/{TELEGRAM_TOKEN}', methods=['POST'])
@@ -145,55 +179,7 @@ def webhook():
         logger.error(f"Error en webhook: {e}")
         return jsonify({"status": "error", "error": str(e)}), 500
 
-def enviar_menu_bienvenida(chat_id):
-    """Envía mensaje de bienvenida con comandos disponibles"""
-    mensaje = """
-🤖 *Bot de Pedidos Activo*
-
-Comandos disponibles:
-/start - Mostrar este mensaje
-/help - Ayuda
-
-Los pedidos nuevos se notificarán automáticamente aquí.
-Usa los botones para actualizar el estado de cada pedido.
-"""
-    try:
-        url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-        data = {
-            "chat_id": chat_id,
-            "text": mensaje,
-            "parse_mode": "Markdown"
-        }
-        requests.post(url, json=data, timeout=10)
-    except Exception as e:
-        logger.error(f"Error enviando bienvenida: {e}")
-
-def enviar_ayuda(chat_id):
-    """Envía mensaje de ayuda"""
-    mensaje = """
-📖 *Ayuda del Bot*
-
-• Cuando llega un nuevo pedido, recibirás un mensaje con botones
-• Presiona el botón correspondiente para actualizar el estado del pedido
-• Los estados disponibles son:
-  - 👨‍🍳 Preparando
-  - 🛵 Enviado  
-  - ✅ Finalizado
-
-• Cada vez que cambies el estado, se actualizará automáticamente en Google Sheets
-"""
-    try:
-        url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-        data = {
-            "chat_id": chat_id,
-            "text": mensaje,
-            "parse_mode": "Markdown"
-        }
-        requests.post(url, json=data, timeout=10)
-    except Exception as e:
-        logger.error(f"Error enviando ayuda: {e}")
-
-# ==================== RUTA DE PRUEBA ====================
+# ==================== RUTAS DE PRUEBA Y CONFIGURACIÓN ====================
 @app.route('/health', methods=['GET'])
 def health():
     """Endpoint para verificar que el bot está funcionando"""
@@ -228,6 +214,16 @@ def delete_webhook():
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/deleteWebhook"
     try:
         response = requests.post(url, timeout=10)
+        return jsonify(response.json()), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/get_webhook_info', methods=['GET'])
+def get_webhook_info():
+    """Obtiene información del webhook actual"""
+    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/getWebhookInfo"
+    try:
+        response = requests.get(url, timeout=10)
         return jsonify(response.json()), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
