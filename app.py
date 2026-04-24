@@ -9,7 +9,7 @@ from datetime import datetime
 import threading
 
 # ==================== CONFIGURACIÓN ====================
-URL_APPS_SCRIPT = "https://script.google.com/macros/s/AKfycbz8_XojEXT-NDVWeKsJWEVKI-WQP6Q9R2FtdppbSl5-y2JasJ4TBrxcd0DColEI6zuSLw/exec"
+URL_APPS_SCRIPT = "https://script.google.com/macros/s/AKfycbz4720UDXBkCvGgK5D-q1QvzciW-G4NaL4Fy9eo_HD_aeVsMjWI0thr90lerEcba6lbXw/exec"
 
 ID_SHEET = "1WcVWos3p9NJKKEpY2L1-gmKhEkZJH1FL8Hy5bNqHyRA"
 GID_CONFIG = "612320365"
