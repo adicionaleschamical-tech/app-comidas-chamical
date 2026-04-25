@@ -9,7 +9,7 @@ from datetime import datetime
 import threading
 
 # ==================== CONFIGURACIÓN ====================
-URL_APPS_SCRIPT = "https://script.google.com/macros/s/AKfycbwVizlkZOf7HLv0aRxsr2Mb_Ch4lLh5-hPBJtBT_vEJuGbowefBPTFMRG1cWXNW-6jX3w/exec"
+URL_APPS_SCRIPT = "https://script.google.com/macros/s/AKfycbxM0w-hI5Rihj7xg2P4a1u5s4PaIhs7Muj-4D8ekHSttNLM4obTgstDMfk8meXWVLuK/exec"
 
 ID_SHEET = "1WcVWos3p9NJKKEpY2L1-gmKhEkZJH1FL8Hy5bNqHyRA"
 GID_CONFIG = "612320365"
@@ -177,47 +177,13 @@ def enviar_mensaje_telegram(mensaje, parse_mode="Markdown"):
     except:
         return False
 
-# ==================== POLLING PARA TELEGRAM ====================
-def procesar_callback(callback_data, callback_id, message):
-    """Procesa el callback cuando alguien presiona un botón"""
-    partes = callback_data.split('_')
-    
-    if len(partes) >= 3 and partes[0] == 'est':
-        nuevo_estado = partes[1]
-        dni = partes[2]
-        
-        # Actualizar en Google Sheets
-        params = {
-            "accion": "actualizar_estado",
-            "dni": dni,
-            "estado": nuevo_estado
-        }
-        try:
-            response = requests.get(URL_APPS_SCRIPT, params=params, timeout=15)
-            if "OK" in response.text:
-                # Responder al callback
-                url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/answerCallbackQuery"
-                requests.post(url, json={"callback_query_id": callback_id, "text": f"✅ Pedido actualizado a: {nuevo_estado}"})
-                
-                # Editar mensaje para quitar botones
-                nuevo_mensaje = message.get('text', '') + f"\n\n✅ *Estado actual: {nuevo_estado}*"
-                url_edit = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/editMessageText"
-                requests.post(url_edit, json={
-                    "chat_id": message['chat']['id'],
-                    "message_id": message['message_id'],
-                    "text": nuevo_mensaje,
-                    "parse_mode": "Markdown"
-                })
-        except Exception as e:
-            print(f"Error procesando callback: {e}")
+# ==================== POLLING PARA TELEGRAM (BOTONES FUNCIONAN SIN WEBHOOK) ====================
+ultimo_update_id = 0
 
-def polling_telegram():
-    """Revisa periódicamente si hay callbacks de Telegram"""
-    ultimo_update_id = 0
-    
+def procesar_polling():
+    global ultimo_update_id
     while True:
         try:
-            # Obtener actualizaciones de Telegram
             url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/getUpdates"
             params = {"offset": ultimo_update_id + 1, "timeout": 30}
             response = requests.get(url, params=params, timeout=35)
@@ -227,23 +193,53 @@ def polling_telegram():
                 for update in data['result']:
                     ultimo_update_id = update['update_id']
                     
-                    # Procesar callback_query (botón presionado)
                     if 'callback_query' in update:
                         callback = update['callback_query']
-                        procesar_callback(
-                            callback.get('data', ''),
-                            callback.get('id', ''),
-                            callback.get('message', {})
-                        )
-        
+                        callback_data = callback.get('data', '')
+                        partes = callback_data.split('_')
+                        
+                        if len(partes) >= 3 and partes[0] == 'est':
+                            nuevo_estado = partes[1]
+                            dni = partes[2]
+                            
+                            # Actualizar estado en Google Sheets
+                            params_update = {
+                                "accion": "actualizar_estado",
+                                "dni": dni,
+                                "estado": nuevo_estado
+                            }
+                            requests.get(URL_APPS_SCRIPT, params=params_update, timeout=15)
+                            
+                            # Responder a Telegram
+                            answer_url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/answerCallbackQuery"
+                            answer_data = {
+                                "callback_query_id": callback['id'],
+                                "text": f"✅ Pedido actualizado a: {nuevo_estado}"
+                            }
+                            requests.post(answer_url, json=answer_data, timeout=10)
+                            
+                            # Editar mensaje para mostrar nuevo estado
+                            try:
+                                edit_url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/editMessageText"
+                                edit_data = {
+                                    "chat_id": callback['message']['chat']['id'],
+                                    "message_id": callback['message']['message_id'],
+                                    "text": callback['message']['text'] + f"\n\n✅ *Estado actual: {nuevo_estado}*",
+                                    "parse_mode": "Markdown"
+                                }
+                                requests.post(edit_url, json=edit_data, timeout=10)
+                            except:
+                                pass
+                            
         except Exception as e:
             print(f"Error en polling: {e}")
             time.sleep(5)
 
-def iniciar_polling():
-    """Inicia el polling en un hilo separado"""
-    hilo = threading.Thread(target=polling_telegram, daemon=True)
+# Iniciar polling en segundo plano
+if 'polling_iniciado' not in st.session_state:
+    hilo = threading.Thread(target=procesar_polling, daemon=True)
     hilo.start()
+    st.session_state.polling_iniciado = True
 
 # ==================== CLASE PEDIDO ====================
 class PedidoManager:
@@ -264,9 +260,7 @@ class PedidoManager:
 
     def notificar_telegram(self, nombre, dni, direccion, detalle, total):
         """Envía notificación a Telegram con botones inline"""
-        # Limpiar caracteres especiales para Markdown
         detalle_limpio = str(detalle).replace('_', '\\_').replace('*', '\\*').replace('[', '\\[').replace(']', '\\]').replace('`', '\\`')
-        
         total_formateado = formatear_moneda(total)
         
         keyboard = {
@@ -312,9 +306,6 @@ if 'carrito' not in st.session_state:
     st.session_state.carrito = {}
 if 'tipo_usuario' not in st.session_state:
     st.session_state.tipo_usuario = None
-if 'polling_iniciado' not in st.session_state:
-    iniciar_polling()
-    st.session_state.polling_iniciado = True
 
 def mostrar_productos_cliente():
     """Muestra productos con imágenes, variedades y precios"""
@@ -324,7 +315,6 @@ def mostrar_productos_cliente():
         st.warning("No hay productos disponibles")
         return
     
-    # Agrupar por categoría
     if 'Categoria' in df.columns:
         categorias = df['Categoria'].unique()
     else:
@@ -340,7 +330,6 @@ def mostrar_productos_cliente():
         
         for idx, row in productos_cat.iterrows():
             with st.container(border=True):
-                # Imagen
                 imagen_url = row.get('Imagen', '')
                 if imagen_url and imagen_url != '' and imagen_url != 'nan':
                     try:
@@ -348,17 +337,14 @@ def mostrar_productos_cliente():
                     except:
                         pass
                 
-                # Nombre del producto
                 producto = row.get('Producto', 'Sin nombre')
                 st.markdown(f"### 🍔 {producto}")
                 
-                # Ingredientes
                 ingredientes = row.get('Ingredientes', '')
                 if ingredientes and ingredientes != 'nan':
                     with st.expander("📋 Ver ingredientes"):
                         st.write(ingredientes)
                 
-                # Variedades y precios
                 variedades = row.get('Variedades', '')
                 precios = row.get('Precio', '')
                 
@@ -389,7 +375,6 @@ def mostrar_productos_cliente():
                                 st.toast(f"✓ Añadido: {var}", icon="🍔")
                                 st.rerun()
                 else:
-                    # Producto simple
                     precio_num = limpiar_precio(precios)
                     col1, col2, col3 = st.columns([2, 1, 1])
                     with col1:
@@ -409,13 +394,11 @@ def mostrar_productos_cliente():
                             st.toast(f"✓ Añadido: {producto}", icon="🍔")
                             st.rerun()
                 
-                # Disponibilidad
                 disponible = row.get('Disponible', 'SI')
                 if disponible == 'NO':
                     st.warning("⚠️ Producto no disponible")
 
 def main():
-    # Verificar mantenimiento
     if esta_en_mantenimiento() and st.session_state.vista != 'admin' and st.session_state.tipo_usuario != 'admin':
         st.title("🔧 MANTENIMIENTO")
         st.warning("Sistema en mantenimiento. Pronto volvemos.")
@@ -428,24 +411,20 @@ def main():
     nombre_local = obtener_nombre_local()
     st.set_page_config(page_title=nombre_local, page_icon="🍔", layout="wide")
     
-    # Sidebar - Solo visible para admin/usuario
     if st.session_state.tipo_usuario in ['admin', 'usuario']:
         with st.sidebar:
             st.info(f"📍 {nombre_local}")
             st.markdown("---")
             st.markdown(f"👤 **Usuario:** {st.session_state.tipo_usuario.upper()}")
             
-            # Estado del sistema
             st.markdown("### 📡 Estado del Sistema")
             
-            # Verificar Google Sheets
             config_check = obtener_toda_configuracion()
             if config_check:
                 st.success("✅ Google Sheets: Conectado")
             else:
                 st.error("❌ Google Sheets: Error")
             
-            # Verificar Telegram
             st.markdown("---")
             st.markdown("### 🤖 Telegram")
             col_tg1, col_tg2 = st.columns(2)
@@ -470,7 +449,6 @@ def main():
                 st.cache_data.clear()
                 st.rerun()
     
-    # VISTA INICIO
     if st.session_state.vista == 'inicio':
         mostrar_logo()
         st.title(f"🍔 {nombre_local}")
@@ -493,7 +471,6 @@ def main():
                 st.session_state.vista = 'login'
                 st.rerun()
     
-    # LOGIN
     elif st.session_state.vista == 'login':
         st.subheader("🔐 Acceso Administrativo")
         
@@ -515,7 +492,6 @@ def main():
                 else:
                     st.error("❌ Credencial incorrecta")
     
-    # PANEL ADMIN
     elif st.session_state.vista == 'admin':
         es_admin = (st.session_state.tipo_usuario == "admin")
         st.subheader(f"⚙️ Panel de {'ADMINISTRADOR' if es_admin else 'USUARIO'}")
@@ -532,7 +508,6 @@ def main():
         else:
             tabs = st.tabs(["🏪 General", "🍔 Productos", "📊 Pedidos", "🎨 Personalización"])
         
-        # TAB GENERAL
         with tabs[0]:
             with st.form("general"):
                 nombre = st.text_input("Nombre del Local", config.get("Nombre_Local", nombre_local))
@@ -561,13 +536,11 @@ def main():
                     time.sleep(1)
                     st.rerun()
         
-        # TAB PRODUCTOS - Vista previa
         with tabs[1]:
             st.subheader("Gestión de Productos")
             st.info("📝 Para editar productos, abre Google Sheets directamente:")
             st.markdown(f"[📊 Abrir Google Sheets - Productos](https://docs.google.com/spreadsheets/d/{ID_SHEET}/edit#gid={GID_PRODUCTOS})")
             
-            # Vista previa de productos
             df = cargar_datos_sin_cache(URL_PRODUCTOS)
             if not df.empty:
                 st.write("### Vista previa de productos")
@@ -586,7 +559,6 @@ def main():
                             else:
                                 st.error("❌ No disponible")
         
-        # TAB PEDIDOS
         with tabs[2]:
             if st.button("🔄 Refrescar Pedidos"):
                 st.cache_data.clear()
@@ -624,7 +596,6 @@ def main():
             else:
                 st.info("No hay pedidos registrados")
         
-        # TAB PERSONALIZACIÓN
         with tabs[3]:
             with st.form("personalizacion"):
                 color1 = st.color_picker("Color Primario", config.get("Tema_Primario", "#FF6B35"))
@@ -644,7 +615,6 @@ def main():
                     time.sleep(1)
                     st.rerun()
         
-        # TAB SEGURIDAD (solo admin)
         if es_admin and len(tabs) > 4:
             with tabs[4]:
                 st.warning("⚠️ Configuración sensible - Solo Administrador")
@@ -662,7 +632,6 @@ def main():
                         st.success("✅ Credenciales guardadas")
                         st.rerun()
     
-    # VISTA PEDIDO (CLIENTE)
     elif st.session_state.vista == 'pedir':
         if st.button("⬅ Volver al Inicio"):
             st.session_state.vista = 'inicio'
@@ -688,10 +657,8 @@ def main():
                         st.error("❌ Completa tu nombre y DNI")
             return
         
-        # Mostrar productos
         mostrar_productos_cliente()
         
-        # Carrito
         if st.session_state.carrito:
             st.divider()
             st.subheader("🛒 TU CARRITO")
@@ -706,7 +673,6 @@ def main():
                 st.write(f"{cantidad}x {key} - {formatear_moneda(subtotal)}")
                 resumen += f"• {cantidad}x {key}\n"
             
-            # Delivery
             costo_delivery = int(obtener_valor_config("Costo_Delivery") or 0)
             direccion_final = st.session_state.get('user_direccion', 'Retira en local')
             
