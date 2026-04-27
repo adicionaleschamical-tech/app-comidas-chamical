@@ -4,7 +4,7 @@ import requests
 # --- CONFIGURACIÓN ---
 URL_GOOGLE_SCRIPT = "https://script.google.com/macros/s/AKfycbza2A0uoB9ebCWRPp2TdVOe9ytU0LJTKLHiihx-y6Xzu33ewjWYFG8b090qfXgaJhAGQQ/exec"
 TELEGRAM_TOKEN = "8793126374:AAG5zIBWrUOq50Ku0zjXEe8joD_JlcCDURI"
-TELEGRAM_CHAT_ID = "6168988457"
+TELEGRAM_CHAT_ID = "7860013984"
 
 # --- BASE DE DATOS DEL MENÚ ---
 # Aquí podés agregar o quitar productos
