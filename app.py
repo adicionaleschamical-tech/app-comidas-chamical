@@ -2,15 +2,24 @@ import streamlit as st
 import requests
 
 # --- CONFIGURACIÓN ---
-# Reemplaza con tu URL de Google Apps Script (la de la implementación)
 URL_GOOGLE_SCRIPT = "https://script.google.com/macros/s/AKfycbza2A0uoB9ebCWRPp2TdVOe9ytU0LJTKLHiihx-y6Xzu33ewjWYFG8b090qfXgaJhAGQQ/exec"
-# Reemplaza con tu Token de BotFather
 TELEGRAM_TOKEN = "8793126374:AAG5zIBWrUOq50Ku0zjXEe8joD_JlcCDURI"
-# Reemplaza con tu ID de Chat (donde llegan los pedidos)
 TELEGRAM_CHAT_ID = "6168988457"
 
+# --- BASE DE DATOS DEL MENÚ ---
+# Aquí podés agregar o quitar productos
+MENU = {
+    "Pizzas": [
+        {"nombre": "Muzzarella", "precio": 5000, "ingredientes": "Salsa de tomate, muzzarella, aceitunas", "foto": "https://images.unsplash.com/photo-1513104890138-7c749659a591?w=500"},
+        {"nombre": "Especial", "precio": 6500, "ingredientes": "Muzzarella, jamón, morrones, huevo", "foto": "https://images.unsplash.com/photo-1574071318508-1cdbad80ad38?w=500"},
+    ],
+    "Hamburguesas": [
+        {"nombre": "Doble Bacon", "precio": 4500, "ingredientes": "Doble medallón, cheddar, bacon, barbacoa", "foto": "https://images.unsplash.com/photo-1568901346375-23c9450c58cd?w=500"},
+        {"nombre": "Clásica", "precio": 3800, "ingredientes": "Carne, lechuga, tomate, queso", "foto": "https://images.unsplash.com/photo-1550547660-d9450f859349?w=500"},
+    ]
+}
+
 def enviar_pedido_a_google(datos):
-    """Envía los datos al doGet de Google Apps Script"""
     try:
         response = requests.get(URL_GOOGLE_SCRIPT, params=datos)
         return response.status_code == 200
@@ -19,23 +28,20 @@ def enviar_pedido_a_google(datos):
         return False
 
 def notificar_telegram(datos):
-    """Envía el mensaje con botones a Telegram"""
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-    
-    dni = datos.get("tel") # Usamos el DNI/Tel como identificador único
+    dni = datos.get("tel")
     
     mensaje = (
         f"🔔 *¡NUEVO PEDIDO!*\n\n"
         f"👤 *Cliente:* {datos['nombre']}\n"
         f"🆔 *DNI/Tel:* {dni}\n"
-        f"📍 *Dirección:* {datos['dir']}\n"
-        f"📝 *Detalle:* {datos['detalle']}\n"
-        f"💰 *Total:* ${datos['total']}\n"
+        f"📍 *Dirección:* {datos['dir']}\n\n"
+        f"📝 *Detalle:* \n{datos['detalle']}\n\n"
+        f"💰 *TOTAL:* ${datos['total']}\n"
         f"---------------------------\n"
         f"Cambiar estado:"
     )
 
-    # Estos callback_data deben coincidir con lo que espera el Google Apps Script
     keyboard = {
         "inline_keyboard": [
             [
@@ -48,57 +54,81 @@ def notificar_telegram(datos):
         ]
     }
 
-    payload = {
-        "chat_id": TELEGRAM_CHAT_ID,
-        "text": mensaje,
-        "parse_mode": "Markdown",
-        "reply_markup": keyboard
-    }
+    payload = {"chat_id": TELEGRAM_CHAT_ID, "text": mensaje, "parse_mode": "Markdown", "reply_markup": keyboard}
+    requests.post(url, json=payload)
 
-    try:
-        requests.post(url, json=payload)
-    except Exception as e:
-        st.error(f"Error al notificar por Telegram: {e}")
+# --- INTERFAZ STREAMLIT ---
+st.set_page_config(page_title="Carrito de Pedidos", page_icon="🍕", layout="wide")
 
-# --- INTERFAZ DE STREAMLIT ---
-st.set_page_config(page_title="Sistema de Pedidos", page_icon="🍕")
+st.title("🍕 Menú de Sabores")
+st.write("Seleccioná tus productos favoritos y confirmá tu pedido.")
 
-st.title("🍕 Realizá tu Pedido")
-st.write("Completá los datos para procesar tu compra.")
+# Inicializar carrito en la sesión
+if "carrito" not in st.session_state:
+    st.session_state.carrito = []
 
-with st.form("form_pedido", clear_on_submit=True):
-    nombre = st.text_input("Nombre Completo")
-    dni_tel = st.text_input("DNI o Teléfono (Sin puntos ni espacios)")
-    direccion = st.text_input("Dirección de Entrega")
-    detalle = st.text_area("¿Qué vas a pedir?")
-    total = st.number_input("Total a pagar", min_value=0)
-    
-    boton_enviar = st.form_submit_button("Confirmar Pedido")
+# --- MOSTRAR MENÚ ---
+col_menu, col_carrito = st.columns([2, 1])
 
-if boton_enviar:
-    if nombre and dni_tel and direccion and detalle:
-        datos_pedido = {
-            "accion": "nuevo",
-            "nombre": nombre,
-            "tel": dni_tel,
-            "dir": direccion,
-            "detalle": detalle,
-            "total": total
-        }
-        
-        with st.spinner("Procesando..."):
-            # 1. Guardar en Google Sheets
-            exito_sheet = enviar_pedido_a_google(datos_pedido)
-            
-            # 2. Enviar alerta a Telegram
-            if exito_sheet:
-                notificar_telegram(datos_pedido)
-                st.success("¡Pedido enviado con éxito! Ya lo estamos procesando.")
-            else:
-                st.error("Hubo un problema al guardar el pedido. Reintentá.")
+with col_menu:
+    for categoria, productos in MENU.items():
+        st.header(f"--- {categoria} ---")
+        for p in productos:
+            with st.container():
+                c1, c2, c3 = st.columns([1, 2, 1])
+                with c1:
+                    st.image(p["foto"], use_container_width=True)
+                with c2:
+                    st.subheader(p["nombre"])
+                    st.write(p["ingredientes"])
+                    st.write(f"**Precio:** ${p['precio']}")
+                with c3:
+                    if st.button(f"Agregar", key=p["nombre"]):
+                        st.session_state.carrito.append(p)
+                        st.toast(f"✅ {p['nombre']} al carrito")
+
+# --- CARRITO ---
+with col_carrito:
+    st.header("🛒 Tu Pedido")
+    if not st.session_state.carrito:
+        st.write("El carrito está vacío.")
     else:
-        st.warning("Por favor, completá todos los campos.")
+        total_acumulado = 0
+        detalle_texto = ""
+        for i, item in enumerate(st.session_state.carrito):
+            st.write(f"**{item['nombre']}** - ${item['precio']}")
+            total_acumulado += item['precio']
+            detalle_texto += f"- {item['nombre']} (${item['precio']})\n"
+        
+        st.divider()
+        st.subheader(f"Total: ${total_acumulado}")
+        
+        if st.button("Vaciar Carrito"):
+            st.session_state.carrito = []
+            st.rerun()
 
-# --- MANTENIMIENTO ---
-# (Opcional) Mostrar si el sistema está en mantenimiento según la lógica de tu Sheets
-# st.sidebar.info("Estado del Sistema: Operativo")
+        st.divider()
+        st.subheader("Datos de Entrega")
+        with st.form("form_final"):
+            nombre = st.text_input("Nombre")
+            dni = st.text_input("DNI o Teléfono")
+            direccion = st.text_input("Dirección")
+            
+            if st.form_submit_button("CONFIRMAR PEDIDO"):
+                if nombre and dni and direccion:
+                    datos_pedido = {
+                        "accion": "nuevo",
+                        "nombre": nombre,
+                        "tel": dni,
+                        "dir": direccion,
+                        "detalle": detalle_texto,
+                        "total": total_acumulado
+                    }
+                    if enviar_pedido_a_google(datos_pedido):
+                        notificar_telegram(datos_pedido)
+                        st.success("¡Pedido enviado! ¡Gracias por tu compra!")
+                        st.session_state.carrito = []
+                    else:
+                        st.error("Error al procesar. Reintentá.")
+                else:
+                    st.warning("Completá tus datos de entrega.")
