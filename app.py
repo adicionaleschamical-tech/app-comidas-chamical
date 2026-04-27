@@ -3,7 +3,7 @@ import requests
 
 # --- CONFIGURACIÓN ---
 # Reemplaza con tu URL de Google Apps Script (la de la implementación)
-URL_GOOGLE_SCRIPT = "TU_URL_DE_APPS_SCRIPT_AQUI"
+URL_GOOGLE_SCRIPT = "https://script.google.com/macros/s/AKfycbza2A0uoB9ebCWRPp2TdVOe9ytU0LJTKLHiihx-y6Xzu33ewjWYFG8b090qfXgaJhAGQQ/exec"
 # Reemplaza con tu Token de BotFather
 TELEGRAM_TOKEN = "8793126374:AAG5zIBWrUOq50Ku0zjXEe8joD_JlcCDURI"
 # Reemplaza con tu ID de Chat (donde llegan los pedidos)
