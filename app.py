@@ -2,7 +2,7 @@ import streamlit as st
 import requests
 
 # --- CONFIGURACIÓN ---
-URL_GOOGLE_SCRIPT = "https://script.google.com/macros/s/AKfycbwvp0IDXDXCU_eTFjO7fHxgvHgDpM7RutVjo17uxmKwfSjUF0eXKW0L7q7KS0Il20lUBw/exec"
+URL_GOOGLE_SCRIPT = "https://script.google.com/macros/s/AKfycbyRCHdvUc1zz39132g2SIVBcyPx8f9XDwIwtzoYMpF7JKoBtW-dp1MKJyG8BdkTwGxiPA/exec"
 TELEGRAM_TOKEN = "8793126374:AAG5zIBWrUOq50Ku0zjXEe8joD_JlcCDURI"
 TELEGRAM_CHAT_ID = "7860013984"
 
