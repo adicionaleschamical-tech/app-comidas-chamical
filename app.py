@@ -3,7 +3,7 @@ import pandas as pd
 import requests
 
 # --- CONFIGURACIÓN DE CONEXIÓN ---
-URL_GOOGLE_SCRIPT = "https://script.google.com/macros/s/AKfycbznxL3Nx1apqPSMyvKnXyF8sAu2LU4nEG2kl_JToDu-B5Z4obVqjpRGBDDLFJVdnzo4pA/exec"
+URL_GOOGLE_SCRIPT = "https://script.google.com/macros/s/AKfycbwlHFcGkkbIuPPcgLeIl2UleCp3qA4dOJrXgHZAEMDILnnK1hFbzHsUO91oQ0Zqg32_SA/exec"
 TELEGRAM_TOKEN = "8597598506:AAGgsvhwhG9pCJkr6epmxmH8qGU0DvNBCyA"
 TELEGRAM_CHAT_ID = "7860013984"
 
