@@ -3,7 +3,7 @@ import requests
 
 # --- CONFIGURACIÓN ---
 # REEMPLAZÁ ESTA URL con la de tu "Nueva implementación" de Google
-URL_GOOGLE_SCRIPT = "https://script.google.com/macros/s/AKfycbyRCHdvUc1zz39132g2SIVBcyPx8f9XDwIwtzoYMpF7JKoBtW-dp1MKJyG8BdkTwGxiPA/exec"
+URL_GOOGLE_SCRIPT = "https://script.google.com/macros/s/AKfycbxL9rhEVeXaWk1hSBrd41WCLXGsgY7gP4PDDDGuxwXTFC-KQBq-BVUhkuwvayztd5h-Bw/exec"
 TELEGRAM_TOKEN = "8793126374:AAG5zIBWrUOq50Ku0zjXEe8joD_JlcCDURI"
 TELEGRAM_CHAT_ID = "7860013984"
 
