@@ -3,7 +3,7 @@ import pandas as pd
 import requests
 
 # --- CONFIGURACIÓN DE CONEXIÓN ---
-URL_GOOGLE_SCRIPT = "https://script.google.com/macros/s/AKfycbyuj1O98ChTKRgn7y7scCoFsNeAxWAkghQHXL2QZyaDBIsTf8nz8xKtOG1UBTZ8cLX_Fw/exec"
+URL_GOOGLE_SCRIPT = "https://script.google.com/macros/s/AKfycbwlHFcGkkbIuPPcgLeIl2UleCp3qA4dOJrXgHZAEMDILnnK1hFbzHsUO91oQ0Zqg32_SA/exec"
 
 def leer_datos(accion):
     try:
@@ -22,133 +22,153 @@ color_p = config.get("tema_primario", "#FF6B35")
 st.markdown(f"""
     <style>
     .stApp {{ background-color: {config.get("background_color", "#FFF8F0")}; }}
-    .main-title {{ color: {color_p}; text-align: center; font-weight: 800; }}
-    .stButton>button {{ background-color: {color_p}; color: white; border-radius: 10px; width: 100%; }}
-    .pedido-card {{ background: white; padding: 20px; border-radius: 15px; border-left: 5px solid {color_p}; margin-bottom: 10px; box-shadow: 2px 2px 5px rgba(0,0,0,0.05); }}
+    .main-title {{ color: {color_p}; text-align: center; font-weight: 800; font-size: 2.5rem; margin-bottom:0; }}
+    .stButton>button {{ background-color: {color_p}; color: white; border-radius: 10px; width: 100%; border: none; }}
+    .card {{ background: white; padding: 15px; border-radius: 15px; box-shadow: 0px 4px 10px rgba(0,0,0,0.05); margin-bottom: 15px; height: 100%; }}
+    .pedido-card {{ background: white; padding: 15px; border-radius: 10px; border-left: 5px solid {color_p}; margin-bottom: 10px; box-shadow: 1px 1px 5px rgba(0,0,0,0.1); }}
     </style>
     """, unsafe_allow_html=True)
 
 # --- ESTADO DE SESIÓN ---
 if "carrito" not in st.session_state: st.session_state.carrito = []
-if "autenticado" not in st.session_state: st.session_state.autenticado = False
+if "rol" not in st.session_state: st.session_state.rol = "cliente"
 
-# --- PANTALLA DE INGRESO (LOGIN) ---
-if not st.session_state.autenticado:
-    st.markdown(f"<h1 class='main-title'>🍔 {config.get('nombre_local', 'BIENVENIDOS')}</h1>", unsafe_allow_html=True)
-    col1, col2, col3 = st.columns([1,2,1])
-    with col2:
-        st.subheader("Ingresar para comprar")
-        user_input = st.text_input("DNI o Usuario")
-        pass_input = st.text_input("Contraseña", type="password")
-        if st.button("ENTRAR"):
-            # Verificación contra el Excel
-            is_admin = user_input == str(config.get("admin_dni")) and pass_input == str(config.get("admin_pass"))
-            is_user = user_input == config.get("user") and pass_input == config.get("user_pass")
-            
-            if is_admin or is_user:
-                st.session_state.autenticado = True
-                st.rerun()
-            else:
-                st.error("DNI o Clave incorrectos")
+# --- SIDEBAR: INGRESO PERSONAL ---
+with st.sidebar:
+    st.image(config.get("logo_url", ""), width=100) if config.get("logo_url") else None
+    if st.session_state.rol == "cliente":
+        with st.expander("🔐 Acceso Personal"):
+            u = st.text_input("Usuario/DNI")
+            p = st.text_input("Clave", type="password")
+            if st.button("Ingresar"):
+                if u == str(config.get("admin_dni")) and p == str(config.get("admin_pass")):
+                    st.session_state.rol = "admin"
+                    st.rerun()
+                elif u == config.get("user") and p == config.get("user_pass"):
+                    st.session_state.rol = "usuario"
+                    st.rerun()
+                else:
+                    st.error("Credenciales incorrectas")
+    else:
+        st.success(f"Sesión: {st.session_state.rol.upper()}")
+        if st.button("Cerrar Sesión"):
+            st.session_state.rol = "cliente"
+            st.rerun()
+
+# --- VISTA ADMINISTRATIVA / USUARIO ---
+if st.session_state.rol in ["admin", "usuario"]:
+    st.title(f"Panel de Control - {st.session_state.rol.upper()}")
+    tab_pedidos, tab_config = st.tabs(["📋 Gestión de Pedidos", "⚙️ Configuración"])
+    
+    with tab_pedidos:
+        pedidos = leer_datos("leer_pedidos")
+        if pedidos:
+            df = pd.DataFrame(pedidos)
+            st.dataframe(df)
+        else: st.info("No hay pedidos registrados aún.")
+    st.stop() # Detiene la ejecución para que el admin no vea el menú de clientes abajo
+
+# --- VISTA PÚBLICA (CLIENTES) ---
+st.markdown(f"<h1 class='main-title'>🍔 {config.get('nombre_local', 'Hamburguesas El 22')}</h1>", unsafe_allow_html=True)
+st.markdown(f"<p style='text-align: center;'>📍 {config.get('direccion_local')} | ⏰ {config.get('horario')}</p>", unsafe_allow_html=True)
+
+if config.get("modo_mantenimiento") == "SI":
+    st.warning("🛠️ Estamos mejorando para vos. Volvemos pronto.")
     st.stop()
 
-# --- SI ESTÁ AUTENTICADO, MOSTRAR APP ---
-
-# TABS PRINCIPALES
-tab_menu, tab_carrito, tab_mis_pedidos = st.tabs(["🍴 MENÚ", "🛒 MI CARRITO", "🔍 ESTADO DE MI PEDIDO"])
+tab_menu, tab_carrito, tab_rastreo = st.tabs(["🍴 LA CARTA", "🛒 MI PEDIDO", "🔍 RASTREAR PEDIDO"])
 
 # --- TAB 1: MENÚ ---
 with tab_menu:
-    st.markdown(f"<h1 class='main-title'>{config.get('nombre_local')}</h1>", unsafe_allow_html=True)
     prods_raw = leer_datos("leer_productos")
-    
     if prods_raw:
-        # Procesar filas del Excel
-        menu_final = []
+        menu = []
         for p in prods_raw:
             p_n = {str(k).lower(): v for k, v in p.items()}
-            vars = str(p_n.get('variedades', '')).split(';')
-            pres = str(p_n.get('precio', '')).split(';')
-            for i in range(len(vars)):
+            v = str(p_n.get('variedades', '')).split(';')
+            pr = str(p_n.get('precio', '')).split(';')
+            ing = str(p_n.get('ingredientes', '')).split(';')
+            for i in range(len(v)):
                 try:
-                    menu_final.append({
-                        "nombre": vars[i].strip(),
-                        "precio": float(pres[i].strip()),
-                        "cat": p_n.get('categoria', 'Varios'),
+                    menu.append({
+                        "nombre": v[i].strip(),
+                        "precio": float(pr[i].strip()),
+                        "desc": ing[i].strip() if i < len(ing) else "",
+                        "cat": p_n.get('categoria', 'Otros'),
                         "img": p_n.get('imagen', '')
                     })
                 except: continue
 
-        cats = sorted(list(set([x['cat'] for x in menu_final])))
-        for c in cats:
-            st.write(f"### {c}")
-            cols = st.columns(4)
-            items = [x for x in menu_final if x['cat'] == c]
+        for cat in sorted(list(set([x['cat'] for x in menu]))):
+            st.subheader(f"➔ {cat}")
+            cols = st.columns(3)
+            items = [x for x in menu if x['cat'] == cat]
             for idx, it in enumerate(items):
-                with cols[idx % 4]:
-                    if str(it['img']).startswith("http"): st.image(it['img'])
+                with cols[idx % 3]:
+                    st.markdown('<div class="card">', unsafe_allow_html=True)
+                    if str(it['img']).startswith("http"): st.image(it['img'], use_container_width=True)
                     st.write(f"**{it['nombre']}**")
-                    st.write(f"${it['precio']:,}")
-                    if st.button("Agregar", key=f"add_{it['nombre']}_{idx}"):
+                    st.caption(it['desc'])
+                    st.write(f"### ${it['precio']:,}")
+                    if st.button("Agregar 🛒", key=f"add_{it['nombre']}_{idx}"):
                         st.session_state.carrito.append(it)
-                        st.toast(f"✅ {it['nombre']} al carrito")
+                        st.toast(f"✅ {it['nombre']} añadido")
+                    st.markdown('</div>', unsafe_allow_html=True)
 
-# --- TAB 2: CARRITO Y PAGO ---
+# --- TAB 2: CARRITO Y REGISTRO ---
 with tab_carrito:
-    st.header("🛒 Detalle de tu compra")
     if not st.session_state.carrito:
-        st.info("Tu carrito está vacío.")
+        st.info("Tu carrito está vacío. ¡Mira nuestra carta!")
     else:
-        total_items = 0
-        for idx, item in enumerate(st.session_state.carrito):
-            col_a, col_b = st.columns([3, 1])
-            col_a.write(f"**{item['nombre']}**")
-            col_b.write(f"${item['precio']:,}")
-            total_items += item['precio']
+        st.header("Resumen del Pedido")
+        total_p = 0
+        for i, item in enumerate(st.session_state.carrito):
+            c1, c2 = st.columns([4, 1])
+            c1.write(f"• {item['nombre']}")
+            c2.write(f"${item['precio']:,}")
+            total_p += item['precio']
         
         envio = float(config.get("costo_delivery", 0))
         st.divider()
-        st.write(f"Subtotal: ${total_items:,}")
+        st.write(f"Subtotal: ${total_p:,}")
         st.write(f"Envío: ${envio:,}")
-        st.subheader(f"TOTAL A PAGAR: ${total_items + envio:,}")
+        st.subheader(f"TOTAL: ${total_p + envio:,}")
 
-        with st.form("form_pago"):
-            st.subheader("Datos de entrega")
-            nombre_cliente = st.text_input("Nombre completo")
-            direccion_entrega = st.text_input("Dirección exacta (Calle, N°, Barrio)")
-            dni_cliente = st.text_input("DNI (para seguimiento)")
-            notas = st.text_area("Notas adicionales (ej: sin cebolla)")
-            
-            if st.form_submit_button("🚀 CONFIRMAR Y PAGAR"):
-                if nombre_cliente and direccion_entrega and dni_cliente:
+        with st.form("registro_pedido"):
+            st.write("📝 **Completa tus datos para el envío**")
+            nombre = st.text_input("Nombre y Apellido")
+            dni = st.text_input("DNI (Obligatorio para rastrear tu pedido)")
+            dire = st.text_input("Dirección de entrega")
+            if st.form_submit_button("🚀 CONFIRMAR PEDIDO"):
+                if nombre and dni and dire:
                     detalles = " + ".join([x['nombre'] for x in st.session_state.carrito])
                     res = requests.get(URL_GOOGLE_SCRIPT, params={
-                        "accion": "nuevo", "tel": dni_cliente, "nombre": nombre_cliente,
-                        "dir": direccion_entrega, "detalle": detalles, "total": total_items + envio
+                        "accion": "nuevo", "tel": dni, "nombre": nombre,
+                        "dir": dire, "detalle": detalles, "total": total_p + envio
                     })
                     if res.text == "OK":
-                        st.success("¡Pedido enviado con éxito! Puedes seguirlo en la pestaña 'Estado de mi pedido'")
+                        st.balloons()
+                        st.success(f"¡Pedido enviado! Podrás rastrearlo con tu DNI: {dni}")
                         st.session_state.carrito = []
-                    else: st.error("Error al guardar pedido.")
-                else: st.warning("Por favor completa todos los datos.")
+                    else: st.error("Error al conectar con el servidor.")
+                else: st.warning("Por favor, completa todos los campos.")
 
-# --- TAB 3: BUSCADOR DE PEDIDOS ---
-with tab_mis_pedidos:
-    st.header("🔍 Seguimiento de Pedido")
-    dni_busqueda = st.text_input("Ingresa tu DNI para consultar")
-    if st.button("BUSCAR"):
-        # Leemos la hoja de pedidos (esto requiere que en tu .gs tengas una accion 'leer_pedidos')
-        pedidos_raw = leer_datos("leer_pedidos") # Debes agregar esta funcion al Script de Google
-        if pedidos_raw:
-            encontrados = [p for p in pedidos_raw if str(p['DNI']).strip() == dni_busqueda.strip()]
+# --- TAB 3: RASTREO ---
+with tab_rastreo:
+    st.header("¿Dónde está mi pedido?")
+    dni_r = st.text_input("Ingresa tu DNI")
+    if st.button("Buscar"):
+        peds = leer_datos("leer_pedidos")
+        if peds:
+            encontrados = [p for p in peds if str(p['DNI']).strip() == dni_r.strip()]
             if encontrados:
                 for ped in encontrados:
                     st.markdown(f"""
                     <div class="pedido-card">
-                        <h4>Pedido de: {ped['NOMBRE']}</h4>
-                        <p><b>Estado:</b> {ped['ESTADO']}</p>
-                        <p><b>Detalle:</b> {ped['DETALLE']}</p>
-                        <p><b>Total:</b> ${ped['TOTAL']}</p>
+                        <b>Cliente:</b> {ped['NOMBRE']}<br>
+                        <b>Estado:</b> <span style="color:{color_p}; font-weight:bold;">{ped['ESTADO']}</span><br>
+                        <b>Detalle:</b> {ped['DETALLE']}<br>
+                        <b>Total:</b> ${ped['TOTAL']}<br>
                     </div>
                     """, unsafe_allow_html=True)
-            else: st.warning("No se encontraron pedidos con ese DNI.")
+            else: st.warning("No hay pedidos registrados con ese DNI.")
