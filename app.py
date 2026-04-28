@@ -2,131 +2,172 @@ import streamlit as st
 import pandas as pd
 import requests
 
-# --- CONFIGURACIÓN CRÍTICA ---
+# --- CONFIGURACIÓN DE CONEXIÓN ---
 URL_GOOGLE_SCRIPT = "https://script.google.com/macros/s/AKfycbznxL3Nx1apqPSMyvKnXyF8sAu2LU4nEG2kl_JToDu-B5Z4obVqjpRGBDDLFJVdnzo4pA/exec"
 TELEGRAM_TOKEN = "8597598506:AAGgsvhwhG9pCJkr6epmxmH8qGU0DvNBCyA"
 TELEGRAM_CHAT_ID = "7860013984"
 
-st.set_page_config(page_title="Barbería - Pedidos", layout="wide")
-
-# --- 1. FUNCIONES DE DATOS ---
+# --- FUNCIONES DE DATOS ---
 def leer_datos(accion):
     try:
         res = requests.get(URL_GOOGLE_SCRIPT, params={"accion": accion})
-        return res.json()
-    except:
-        return []
+        if res.status_code == 200:
+            return res.json()
+    except Exception as e:
+        st.error(f"Error de conexión: {e}")
+    return {}
 
-# --- 2. GESTIÓN DE SESIÓN ---
+# 1. Cargar Configuración Inicial
+config_raw = leer_datos("leer_config")
+# Convertimos las claves a minúsculas para evitar errores de tipeo en el Sheet
+config = {str(k).lower(): v for k, v in config_raw.items()}
+
+# --- CONFIGURACIÓN DE PÁGINA DINÁMICA ---
+nombre_local = config.get("nombre_local", "Mi Comercio")
+st.set_page_config(page_title=nombre_local, layout="wide")
+
+# APLICAR TEMA VISUAL DESDE EL SHEET
+color_primario = config.get("tema_primario", "#FF6B35")
+bg_color = config.get("background_color", "#FFF8F0")
+font_family = config.get("font_family", "sans-serif")
+
+st.markdown(f"""
+    <style>
+    .stApp {{
+        background-color: {bg_color};
+        font-family: {font_family};
+    }}
+    .main-title {{
+        color: {color_primario};
+        text-align: center;
+        font-weight: bold;
+        margin-bottom: 0;
+    }}
+    .stButton>button {{
+        background-color: {color_primario};
+        color: white;
+        border-radius: 10px;
+    }}
+    </style>
+    """, unsafe_allow_html=True)
+
+# --- GESTIÓN DE SESIÓN ---
 if "autenticado" not in st.session_state:
     st.session_state.autenticado = False
     st.session_state.rol = None
 if "carrito" not in st.session_state:
     st.session_state.carrito = []
 
-# --- 3. LOGIN EN BARRA LATERAL ---
-st.sidebar.title("🛠️ Panel de Control")
+# --- SIDEBAR: LOGIN Y PANEL ---
+st.sidebar.title("🛂 Acceso")
 if not st.session_state.autenticado:
-    with st.sidebar.expander("Acceso Personal"):
-        usuario = st.text_input("DNI / Usuario")
-        clave = st.text_input("Clave", type="password")
-        if st.button("Ingresar"):
-            # Aquí llamamos a la config del Sheet para validar
-            config = leer_datos("leer_config")
-            if usuario == str(config.get("admin_dni")) and clave == str(config.get("admin_pass")):
+    with st.sidebar.expander("Ingreso Personal"):
+        u_input = st.text_input("Usuario / DNI")
+        p_input = st.text_input("Contraseña", type="password")
+        if st.button("Entrar"):
+            if u_input == str(config.get("admin_dni")) and p_input == str(config.get("admin_pass")):
                 st.session_state.autenticado = True
                 st.session_state.rol = "admin"
                 st.rerun()
-            elif usuario == config.get("user_name") and clave == config.get("user_pass"):
+            elif u_input == config.get("user_name") and p_input == config.get("user_pass"):
                 st.session_state.autenticado = True
                 st.session_state.rol = "user"
                 st.rerun()
             else:
-                st.error("Datos incorrectos")
+                st.error("Credenciales Inválidas")
 else:
     st.sidebar.success(f"Sesión: {st.session_state.rol.upper()}")
     if st.sidebar.button("Cerrar Sesión"):
         st.session_state.autenticado = False
+        st.session_state.rol = None
         st.rerun()
 
-# --- 4. VISTA ADMINISTRADOR / USUARIO ---
+# --- VISTA DE ADMINISTRACIÓN ---
 if st.session_state.autenticado:
-    st.title(f"Configuración del Sistema - {st.session_state.rol}")
+    st.title(f"⚙️ Panel de Control - {nombre_local}")
     
-    tab1, tab2 = st.tabs(["📦 Productos y Precios", "⚙️ Ajustes Generales"])
+    if config.get("modo_mantenimiento") == "SI":
+        st.warning("⚠️ El modo mantenimiento está ACTIVO actualmente.")
+
+    tab1, tab2 = st.tabs(["📊 Productos", "🔧 Configuración Global"])
     
     with tab1:
-        st.subheader("Editar Catálogo")
-        # Aquí cargarías el DataFrame de productos para editar
-        productos = leer_datos("leer_productos")
-        if productos:
-            df = pd.DataFrame(productos)
-            edited_df = st.data_editor(df, num_rows="dynamic")
-            if st.button("Guardar Cambios en Productos"):
-                # Lógica para enviar el DF actualizado al script
-                st.success("Catálogo actualizado en el Excel")
+        st.subheader("Edición de Catálogo")
+        prods = leer_datos("leer_productos")
+        if prods:
+            df = pd.DataFrame(prods)
+            st.data_editor(df, num_rows="dynamic", key="editor_prods")
+            if st.button("Guardar Cambios"):
+                st.info("Función de guardado en desarrollo conectando al Sheet...")
 
     with tab2:
-        st.subheader("Costos y Direcciones")
-        col1, col2 = st.columns(2)
-        with col1:
-            delivery = st.number_input("Costo de Envío", value=500)
-            direccion = st.text_input("Dirección del Local", "Av. Central 123")
-        
+        st.write(f"**Costo de Delivery actual:** ${config.get('costo_delivery')}")
+        st.write(f"**Horario:** {config.get('horario')}")
         if st.session_state.rol == "admin":
-            mantenimiento = st.toggle("Modo Mantenimiento (Cierra la App)")
-            
-        if st.button("Guardar Ajustes"):
-            st.toast("Ajustes guardados")
+            st.toggle("Activar Mantenimiento Global", value=(config.get("modo_mantenimiento") == "SI"))
 
-# --- 5. VISTA CLIENTE (PÚBLICA) ---
+# --- VISTA PÚBLICA (CLIENTE) ---
 else:
-    st.title("✂️ Bienvenidos a la Barbería")
-    
-    # Cargar productos desde el Sheet
-    productos = leer_datos("leer_productos")
-    
-    if not productos:
-        st.warning("No hay productos disponibles por ahora.")
+    # Encabezado con Logo
+    col_logo, col_tit = st.columns([1, 4])
+    with col_logo:
+        if config.get("logo_url"):
+            st.image(config.get("logo_url"), width=120)
+    with col_tit:
+        st.markdown(f"<h1 class='main-title'>{nombre_local}</h1>", unsafe_allow_html=True)
+        st.caption(f"📍 {config.get('direccion_local')} | ⏰ {config.get('horario')}")
+
+    if config.get("modo_mantenimiento") == "SI":
+        st.error(" estamos realizando mejoras. Volvemos pronto.")
+        st.stop()
+
+    # Catálogo
+    st.divider()
+    prods = leer_datos("leer_productos")
+    if not prods:
+        st.info("Cargando menú...")
     else:
-        cols = st.columns(3)
-        for i, p in enumerate(productos):
-            with cols[i % 3]:
+        c_prods = st.columns(3)
+        for idx, p in enumerate(prods):
+            with c_prods[idx % 3]:
                 st.image(p['imagen'], use_container_width=True)
                 st.subheader(p['nombre'])
-                st.write(f"Precio: ${p['precio']}")
-                if st.button(f"Agregar {p['nombre']}", key=f"btn_{i}"):
+                st.markdown(f"**${p['precio']}**")
+                if st.button("Añadir 🛒", key=f"add_{idx}"):
                     st.session_state.carrito.append(p)
-                    st.toast(f"{p['nombre']} añadido")
+                    st.toast(f"{p['nombre']} al carrito")
 
-    # --- CARRITO ---
+    # Carrito Flotante / Final de página
     if st.session_state.carrito:
-        st.divider()
-        st.header("🛒 Tu Pedido")
-        total = 0
-        for item in st.session_state.carrito:
-            st.write(f"- {item['nombre']}: ${item['precio']}")
-            total += item['precio']
-        
-        st.subheader(f"Total: ${total}")
-        
-        with st.form("confirmar_pedido"):
-            nombre = st.text_input("Nombre Completo")
-            dni = st.text_input("DNI (para seguimiento)")
-            dir_entrega = st.text_input("Dirección de Entrega")
+        with st.expander(f"🛒 Tu Pedido ({len(st.session_state.carrito)} items)"):
+            total = sum(item['precio'] for item in st.session_state.carrito)
+            for item in st.session_state.carrito:
+                st.write(f"- {item['nombre']} (${item['precio']})")
             
-            if st.form_submit_button("Enviar Pedido via Telegram"):
-                # 1. Enviar a Excel (doGet)
-                params = {
-                    "accion": "nuevo",
-                    "tel": dni,
-                    "nombre": nombre,
-                    "dir": dir_entrega,
-                    "detalle": str([x['nombre'] for x in st.session_state.carrito]),
-                    "total": total
-                }
-                requests.get(URL_GOOGLE_SCRIPT, params=params)
+            deliv = float(config.get("costo_delivery", 0))
+            st.write(f"**Envío:** ${deliv}")
+            st.subheader(f"Total: ${total + deliv}")
+            
+            with st.form("form_pedido"):
+                c1, c2 = st.columns(2)
+                nombre = c1.text_input("Tu Nombre")
+                dni_cli = c2.text_input("DNI (para el bot)")
+                dire = st.text_input("Dirección exacta")
                 
-                # 2. El bot envía el mensaje (Esto ya lo tenés configurado en tu Python)
-                st.success("¡Pedido enviado! Revisa el bot de Telegram.")
-                st.session_state.carrito = []
+                if st.form_submit_button("CONFIRMAR PEDIDO"):
+                    detalles = ", ".join([x['nombre'] for x in st.session_state.carrito])
+                    params = {
+                        "accion": "nuevo",
+                        "tel": dni_cli,
+                        "nombre": nombre,
+                        "dir": dire,
+                        "detalle": detalles,
+                        "total": total + deliv
+                    }
+                    res = requests.get(URL_GOOGLE_SCRIPT, params=params)
+                    if res.text == "OK":
+                        st.success("¡Pedido enviado con éxito!")
+                        st.session_state.carrito = []
+                        # El script de Google se encarga de enviar el Telegram con botones
+                    else:
+                        st.error("Error al registrar en el sistema.")
