@@ -3,7 +3,7 @@ import pandas as pd
 import requests
 
 # --- CONFIGURACIÓN DE CONEXIÓN ---
-URL_GOOGLE_SCRIPT = "https://script.google.com/macros/s/AKfycbwlHFcGkkbIuPPcgLeIl2UleCp3qA4dOJrXgHZAEMDILnnK1hFbzHsUO91oQ0Zqg32_SA/exec"
+URL_GOOGLE_SCRIPT = "https://script.google.com/macros/s/AKfycbyha0CeITBxjVIbd4gpgnI_1Hoxu1OK2n7GMWStEq-x8CIAWDVUrj8dbjlFyi6rrbKeaA/exec"
 
 def leer_datos(accion):
     try:
